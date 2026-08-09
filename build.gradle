@@ -32,6 +32,26 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Guava is excluded from all three because Minecraft already bundles its own Guava (33.6.0-jre).
+	implementation("com.google.api-client:google-api-client:${project.google_api_client_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
+	include("com.google.api-client:google-api-client:${project.google_api_client_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
+	implementation("com.google.oauth-client:google-oauth-client:${project.google_oauth_client_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
+	include("com.google.oauth-client:google-oauth-client:${project.google_oauth_client_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
+	implementation("com.google.apis:google-api-services-drive:${project.google_api_services_drive_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
+	include("com.google.apis:google-api-services-drive:${project.google_api_services_drive_version}") {
+		exclude group: "com.google.guava", module: "guava"
+	}
 }
 
 processResources {
