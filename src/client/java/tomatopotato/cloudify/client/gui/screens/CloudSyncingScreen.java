@@ -15,27 +15,26 @@ import net.minecraft.resources.Identifier;
 public class CloudSyncingScreen extends Screen {
 	private static final Identifier MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
 	private static final Identifier INWORLD_MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
-	private static final Component TITLE = Component.literal("Cloud Syncing Options");
-	private static final Component AUTO_SYNC_LABEL = Component.literal("Automatically sync instance");
-	private static final Component AFTER_LAUNCH = Component.literal("after launch");
-	private static final Component BEFORE_SHUTDOWN = Component.literal("before shutdown");
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private final Screen lastScreen;
 
 	public CloudSyncingScreen(Screen lastScreen) {
-		super(TITLE);
+		super(Component.translatable("options.cloud_syncing.title"));
 		this.lastScreen = lastScreen;
 	}
 
 	@Override
 	protected void init() {
-		this.layout.addTitleHeader(TITLE, this.font);
+		this.layout.addTitleHeader(this.title, this.font);
 
+		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
 		LinearLayout autoSyncRow = this.layout.addToContents(LinearLayout.horizontal()).spacing(8);
 		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
-		autoSyncRow.addChild(new StringWidget(AUTO_SYNC_LABEL, this.font));
+		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
 		autoSyncRow.addChild(
-			CycleButton.booleanBuilder(AFTER_LAUNCH, BEFORE_SHUTDOWN, true).displayOnlyValue().create(AUTO_SYNC_LABEL, (button, value) -> {})
+			CycleButton.booleanBuilder(Component.translatable("options.cloud_syncing.after_launch"), Component.translatable("options.cloud_syncing.before_shutdown"), true)
+				.displayOnlyValue()
+				.create(autoSyncLabel, (button, value) -> {})
 		);
 
 		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
