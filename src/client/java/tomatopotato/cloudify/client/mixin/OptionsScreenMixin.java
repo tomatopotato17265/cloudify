@@ -1,5 +1,6 @@
 package tomatopotato.cloudify.client.mixin;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.layouts.LayoutElement;
@@ -8,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
+import tomatopotato.cloudify.client.gui.screens.CloudSyncingScreen;
 
 @Mixin(OptionsScreen.class)
 public class OptionsScreenMixin {
@@ -20,7 +22,14 @@ public class OptionsScreenMixin {
 	)
 	private LayoutElement cloudify$addBackupButton(LayoutElement layoutElement) {
 		if (layoutElement instanceof GridLayout gridLayout) {
-			gridLayout.addChild(Button.builder(Component.translatable("options.backup"), button -> {}).build(), 5, 0);
+			gridLayout.addChild(
+				Button.builder(Component.translatable("options.backup"), button -> {
+					OptionsScreen self = (OptionsScreen) (Object) this;
+					Minecraft.getInstance().gui.setScreen(new CloudSyncingScreen(self));
+				}).build(),
+				5,
+				0
+			);
 		}
 		return layoutElement;
 	}
