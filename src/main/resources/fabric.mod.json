@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "cloudify",
+	"version": "${version}",
+	"name": "Cloudify",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/cloudify/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"tomatopotato.cloudify.Cloudify"
+		],
+		"client": [
+			"tomatopotato.cloudify.client.CloudifyClient"
+		]
+	},
+	"mixins": [
+		"cloudify.mixins.json",
+		{
+			"config": "cloudify.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
