@@ -2,7 +2,10 @@ package tomatopotato.cloudify.client.gui.screens;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
+import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
+import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.CommonComponents;
@@ -13,10 +16,13 @@ public class CloudSyncingScreen extends Screen {
 	private static final Identifier MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
 	private static final Identifier INWORLD_MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
 	private static final Component TITLE = Component.literal("Cloud Syncing Options");
+	private static final Component AUTO_SYNC_LABEL = Component.literal("Automatically sync instance");
+	private static final Component AFTER_LAUNCH = Component.literal("after launch");
+	private static final Component BEFORE_SHUTDOWN = Component.literal("before shutdown");
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private final Screen lastScreen;
 
-	public CloudSyncingScreen(final Screen lastScreen) {
+	public CloudSyncingScreen(Screen lastScreen) {
 		super(TITLE);
 		this.lastScreen = lastScreen;
 	}
@@ -24,6 +30,14 @@ public class CloudSyncingScreen extends Screen {
 	@Override
 	protected void init() {
 		this.layout.addTitleHeader(TITLE, this.font);
+
+		LinearLayout autoSyncRow = this.layout.addToContents(LinearLayout.horizontal()).spacing(8);
+		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
+		autoSyncRow.addChild(new StringWidget(AUTO_SYNC_LABEL, this.font));
+		autoSyncRow.addChild(
+			CycleButton.booleanBuilder(AFTER_LAUNCH, BEFORE_SHUTDOWN, true).displayOnlyValue().create(AUTO_SYNC_LABEL, (button, value) -> {})
+		);
+
 		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
 		this.layout.visitWidgets(this::addRenderableWidget);
 		this.repositionElements();
@@ -35,7 +49,7 @@ public class CloudSyncingScreen extends Screen {
 	}
 
 	@Override
-	public void extractRenderState(final GuiGraphicsExtractor graphics, final int mouseX, final int mouseY, final float partialTick) {
+	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		int contentTop = this.layout.getHeaderHeight();
 		int contentBottom = this.height - this.layout.getFooterHeight();
 		Identifier menuListBackground = this.minecraft.level == null ? MENU_LIST_BACKGROUND : INWORLD_MENU_LIST_BACKGROUND;
