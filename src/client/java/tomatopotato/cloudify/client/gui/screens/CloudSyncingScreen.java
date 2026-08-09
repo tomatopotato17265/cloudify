@@ -1,13 +1,18 @@
 package tomatopotato.cloudify.client.gui.screens;
 
+import java.net.URI;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
+import net.minecraft.client.gui.components.FocusableTextWidget;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
+import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -15,6 +20,7 @@ import net.minecraft.resources.Identifier;
 public class CloudSyncingScreen extends Screen {
 	private static final Identifier MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
 	private static final Identifier INWORLD_MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
+	private static final URI GOOGLE_DRIVE_LOGIN_URI = URI.create("https://example.com");
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private final Screen lastScreen;
 
@@ -27,8 +33,25 @@ public class CloudSyncingScreen extends Screen {
 	protected void init() {
 		this.layout.addTitleHeader(this.title, this.font);
 
+		LinearLayout content = this.layout.addToContents(LinearLayout.vertical()).spacing(8);
+		content.defaultCellSetting().alignHorizontallyCenter();
+
+		Component googleDriveLoginLabel = Component.translatable("options.cloud_syncing.google_drive_login")
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(GOOGLE_DRIVE_LOGIN_URI)));
+		FocusableTextWidget googleDriveLoginWidget = FocusableTextWidget.builder(googleDriveLoginLabel, this.font)
+			.alwaysShowBorder(false)
+			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
+			.build();
+		googleDriveLoginWidget.setComponentClickHandler(style -> {
+			if (style.getClickEvent() instanceof ClickEvent.OpenUrl(URI uri)) {
+				ConfirmLinkScreen.confirmLinkNow(this, uri);
+			}
+		});
+		googleDriveLoginWidget.setNarrateMessage(false);
+		content.addChild(googleDriveLoginWidget);
+
 		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
-		LinearLayout autoSyncRow = this.layout.addToContents(LinearLayout.horizontal()).spacing(8);
+		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
 		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
 		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
 		autoSyncRow.addChild(

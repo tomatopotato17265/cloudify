@@ -1,6 +1,7 @@
 {
 	"options.backup": "Backup",
 	"options.cloud_syncing.title": "Cloud Syncing Options",
+	"options.cloud_syncing.google_drive_login": "Login with Google Drive",
 	"options.cloud_syncing.auto_sync": "Automatically sync instance",
 	"options.cloud_syncing.after_launch": "after launch",
 	"options.cloud_syncing.before_shutdown": "before shutdown"
