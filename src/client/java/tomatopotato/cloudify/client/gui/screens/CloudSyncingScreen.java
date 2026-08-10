@@ -1,5 +1,7 @@
 package tomatopotato.cloudify.client.gui.screens;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -16,13 +18,15 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
+import tomatopotato.cloudify.client.drive.GoogleDriveLoopbackServer;
 
 public class CloudSyncingScreen extends Screen {
 	private static final Identifier MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
 	private static final Identifier INWORLD_MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
-	private static final URI GOOGLE_DRIVE_LOGIN_URI = URI.create("https://example.com");
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private final Screen lastScreen;
+	private GoogleDriveLoopbackServer loginServer;
 
 	public CloudSyncingScreen(Screen lastScreen) {
 		super(Component.translatable("options.cloud_syncing.title"));
@@ -36,8 +40,15 @@ public class CloudSyncingScreen extends Screen {
 		LinearLayout content = this.layout.addToContents(LinearLayout.vertical()).spacing(8);
 		content.defaultCellSetting().alignHorizontallyCenter();
 
+		try {
+			this.loginServer = GoogleDriveLoopbackServer.start();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+		URI authorizationUrl = GoogleDriveLogin.buildAuthorizationUrl(this.loginServer);
+
 		Component googleDriveLoginLabel = Component.translatable("options.cloud_syncing.google_drive_login")
-			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(GOOGLE_DRIVE_LOGIN_URI)));
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(authorizationUrl)));
 		FocusableTextWidget googleDriveLoginWidget = FocusableTextWidget.builder(googleDriveLoginLabel, this.font)
 			.alwaysShowBorder(false)
 			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
@@ -87,6 +98,9 @@ public class CloudSyncingScreen extends Screen {
 
 	@Override
 	public void onClose() {
+		if (this.loginServer != null) {
+			this.loginServer.close();
+		}
 		this.minecraft.gui.setScreen(this.lastScreen);
 	}
 }
