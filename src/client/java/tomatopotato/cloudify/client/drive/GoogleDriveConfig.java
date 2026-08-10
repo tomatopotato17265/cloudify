@@ -10,7 +10,7 @@ import java.util.Properties;
 public class GoogleDriveConfig {
 	public static final String CLIENT_ID;
 	public static final String CLIENT_SECRET;
-	public static final List<String> SCOPES = List.of(DriveScopes.DRIVE_FILE);
+	public static final List<String> SCOPES = List.of(DriveScopes.DRIVE_FILE, "https://www.googleapis.com/auth/userinfo.email");
 
 	static {
 		Properties properties = new Properties();

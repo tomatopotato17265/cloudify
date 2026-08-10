@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -41,6 +42,58 @@ public class CloudSyncingScreen extends Screen {
 		LinearLayout content = this.layout.addToContents(LinearLayout.vertical()).spacing(8);
 		content.defaultCellSetting().alignHorizontallyCenter();
 
+		String loggedInEmail = this.tryGetLoggedInEmail();
+		if (loggedInEmail != null) {
+			content.addChild(this.createLoggedInRow(loggedInEmail));
+		} else {
+			content.addChild(this.createLoginWidget());
+		}
+
+		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
+		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
+		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
+		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
+		autoSyncRow.addChild(
+			CycleButton.booleanBuilder(Component.translatable("options.cloud_syncing.after_launch"), Component.translatable("options.cloud_syncing.before_shutdown"), true)
+				.displayOnlyValue()
+				.create(autoSyncLabel, (button, value) -> {})
+		);
+
+		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
+		this.layout.visitWidgets(this::addRenderableWidget);
+		this.repositionElements();
+	}
+
+	private String tryGetLoggedInEmail() {
+		try {
+			if (!GoogleDriveLogin.isLoggedIn()) {
+				return null;
+			}
+			return GoogleDriveLogin.getLoggedInEmail();
+		} catch (IOException e) {
+			Cloudify.LOGGER.error("Failed to check Google Drive login state", e);
+			return null;
+		}
+	}
+
+	private LinearLayout createLoggedInRow(String email) {
+		Component emailLabel = Component.literal(email)
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE));
+		FocusableTextWidget emailWidget = FocusableTextWidget.builder(emailLabel, this.font)
+			.alwaysShowBorder(false)
+			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
+			.build();
+		emailWidget.setComponentClickHandler(style -> this.minecraft.gui.setScreen(new GoogleDriveLogoutScreen(this, email)));
+		emailWidget.setNarrateMessage(false);
+
+		LinearLayout loggedInRow = LinearLayout.horizontal().spacing(8);
+		loggedInRow.defaultCellSetting().alignVerticallyMiddle();
+		loggedInRow.addChild(new StringWidget(Component.translatable("options.cloud_syncing.logged_in_as"), this.font));
+		loggedInRow.addChild(emailWidget);
+		return loggedInRow;
+	}
+
+	private FocusableTextWidget createLoginWidget() {
 		try {
 			this.loginServer = GoogleDriveLoopbackServer.start();
 		} catch (IOException e) {
@@ -55,6 +108,7 @@ public class CloudSyncingScreen extends Screen {
 			try {
 				GoogleDriveLogin.exchangeCode(this.loginServer, code);
 				Cloudify.LOGGER.info("Successfully logged in with Google Drive");
+				Minecraft.getInstance().execute(() -> this.minecraft.gui.setScreen(new CloudSyncingScreen(this.lastScreen)));
 			} catch (IOException e) {
 				Cloudify.LOGGER.error("Failed to exchange Google Drive authorization code for tokens", e);
 			}
@@ -72,21 +126,7 @@ public class CloudSyncingScreen extends Screen {
 			}
 		});
 		googleDriveLoginWidget.setNarrateMessage(false);
-		content.addChild(googleDriveLoginWidget);
-
-		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
-		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
-		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
-		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
-		autoSyncRow.addChild(
-			CycleButton.booleanBuilder(Component.translatable("options.cloud_syncing.after_launch"), Component.translatable("options.cloud_syncing.before_shutdown"), true)
-				.displayOnlyValue()
-				.create(autoSyncLabel, (button, value) -> {})
-		);
-
-		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
-		this.layout.visitWidgets(this::addRenderableWidget);
-		this.repositionElements();
+		return googleDriveLoginWidget;
 	}
 
 	@Override
@@ -107,6 +147,10 @@ public class CloudSyncingScreen extends Screen {
 		graphics.blit(RenderPipelines.GUI_TEXTURED, headerSeparator, 0, this.layout.getHeaderHeight() - 2, 0.0F, 0.0F, this.width, 2, 32, 2);
 		Identifier footerSeparator = this.minecraft.level == null ? Screen.FOOTER_SEPARATOR : Screen.INWORLD_FOOTER_SEPARATOR;
 		graphics.blit(RenderPipelines.GUI_TEXTURED, footerSeparator, 0, this.height - this.layout.getFooterHeight(), 0.0F, 0.0F, this.width, 2, 32, 2);
+	}
+
+	public Screen getLastScreen() {
+		return this.lastScreen;
 	}
 
 	@Override

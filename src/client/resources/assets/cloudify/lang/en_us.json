@@ -2,6 +2,9 @@
 	"options.backup": "Backup",
 	"options.cloud_syncing.title": "Cloud Syncing Options",
 	"options.cloud_syncing.google_drive_login": "Login with Google Drive",
+	"options.cloud_syncing.logged_in_as": "Logged in as",
+	"options.cloud_syncing.log_out": "Log Out",
+	"options.cloud_syncing.confirm_logout": "Are you sure you want to log out of %s?",
 	"options.cloud_syncing.auto_sync": "Automatically sync instance",
 	"options.cloud_syncing.after_launch": "after launch",
 	"options.cloud_syncing.before_shutdown": "before shutdown"
