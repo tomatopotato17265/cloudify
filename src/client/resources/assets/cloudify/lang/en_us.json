@@ -7,5 +7,9 @@
 	"options.cloud_syncing.confirm_logout": "Are you sure you want to log out of %s?",
 	"options.cloud_syncing.auto_sync": "Automatically sync instance",
 	"options.cloud_syncing.after_launch": "after launch",
-	"options.cloud_syncing.before_shutdown": "before shutdown"
+	"options.cloud_syncing.before_shutdown": "before shutdown",
+	"options.select_world.play_world": "Play World",
+	"options.select_world.import_world": "Import World",
+	"options.select_world.create_world": "Create World",
+	"selectWorld.select": "Play World"
 }
