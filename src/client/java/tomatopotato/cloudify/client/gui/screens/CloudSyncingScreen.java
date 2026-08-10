@@ -18,6 +18,7 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
 import tomatopotato.cloudify.client.drive.GoogleDriveLoopbackServer;
 
@@ -46,6 +47,18 @@ public class CloudSyncingScreen extends Screen {
 			throw new UncheckedIOException(e);
 		}
 		URI authorizationUrl = GoogleDriveLogin.buildAuthorizationUrl(this.loginServer);
+		this.loginServer.authorizationCode().whenComplete((code, error) -> {
+			if (error != null) {
+				Cloudify.LOGGER.error("Google Drive login failed", error);
+				return;
+			}
+			try {
+				GoogleDriveLogin.exchangeCode(this.loginServer, code);
+				Cloudify.LOGGER.info("Successfully logged in with Google Drive");
+			} catch (IOException e) {
+				Cloudify.LOGGER.error("Failed to exchange Google Drive authorization code for tokens", e);
+			}
+		});
 
 		Component googleDriveLoginLabel = Component.translatable("options.cloud_syncing.google_drive_login")
 			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(authorizationUrl)));
