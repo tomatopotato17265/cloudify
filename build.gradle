@@ -25,6 +25,15 @@ loom {
 	}
 }
 
+configurations {
+	// Guava, failureaccess, and gson are excluded here since Minecraft already bundles matching versions of all three.
+	transitiveInclude {
+		exclude group: "com.google.guava", module: "guava"
+		exclude group: "com.google.guava", module: "failureaccess"
+		exclude group: "com.google.code.gson", module: "gson"
+	}
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -33,24 +42,25 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	// Guava is excluded from all three because Minecraft already bundles its own Guava (33.6.0-jre).
 	implementation("com.google.api-client:google-api-client:${project.google_api_client_version}") {
 		exclude group: "com.google.guava", module: "guava"
 	}
-	include("com.google.api-client:google-api-client:${project.google_api_client_version}") {
-		exclude group: "com.google.guava", module: "guava"
-	}
+	transitiveInclude "com.google.api-client:google-api-client:${project.google_api_client_version}"
 	implementation("com.google.oauth-client:google-oauth-client:${project.google_oauth_client_version}") {
 		exclude group: "com.google.guava", module: "guava"
 	}
-	include("com.google.oauth-client:google-oauth-client:${project.google_oauth_client_version}") {
-		exclude group: "com.google.guava", module: "guava"
-	}
+	transitiveInclude "com.google.oauth-client:google-oauth-client:${project.google_oauth_client_version}"
 	implementation("com.google.apis:google-api-services-drive:${project.google_api_services_drive_version}") {
 		exclude group: "com.google.guava", module: "guava"
 	}
-	include("com.google.apis:google-api-services-drive:${project.google_api_services_drive_version}") {
-		exclude group: "com.google.guava", module: "guava"
+	transitiveInclude "com.google.apis:google-api-services-drive:${project.google_api_services_drive_version}"
+}
+
+afterEvaluate {
+	// `transitiveInclude` resolves independently of the actual game/mod runtime classpath. This forces it defer to the classpath's choices.
+	configurations.transitiveInclude.shouldResolveConsistentlyWith(configurations.clientRuntimeClasspath)
+	configurations.transitiveInclude.resolvedConfiguration.resolvedArtifacts.each {
+		dependencies.include(it.moduleVersion.id.toString())
 	}
 }
 
