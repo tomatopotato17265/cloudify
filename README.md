@@ -8,4 +8,4 @@ For setup instructions, please see the [Fabric Documentation page](https://docs.
 
 ## License
 
-This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
+This project is licensed under the GNU General Public License Version 3. Please refer to the [license](LICENSE) for more details.
