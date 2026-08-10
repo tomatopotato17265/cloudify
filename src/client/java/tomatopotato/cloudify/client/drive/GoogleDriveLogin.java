@@ -38,6 +38,10 @@ public class GoogleDriveLogin {
 		return GoogleDriveAuth.FLOW.loadCredential(USER_ID) != null;
 	}
 
+	public static Credential getCredential() throws IOException {
+		return GoogleDriveAuth.FLOW.loadCredential(USER_ID);
+	}
+
 	public static String getLoggedInEmail() throws IOException {
 		Credential credential = GoogleDriveAuth.FLOW.loadCredential(USER_ID);
 		HttpRequestFactory requestFactory = GoogleDriveAuth.HTTP_TRANSPORT.createRequestFactory(credential);
