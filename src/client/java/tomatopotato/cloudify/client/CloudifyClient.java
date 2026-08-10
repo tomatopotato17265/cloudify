@@ -11,7 +11,7 @@ public class CloudifyClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
 			Path worldFolder = server.getWorldPath(LevelResource.ROOT);
-			String worldName = worldFolder.getFileName().toString();
+			String worldName = worldFolder.normalize().getFileName().toString();
 			new Thread(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName), "cloudify-world-upload").start();
 		});
 	}
