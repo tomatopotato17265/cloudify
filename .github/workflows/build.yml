@@ -21,6 +21,10 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      - name: write secrets.properties
+        run: |
+          echo "googleDriveClientId=${{ secrets.CLIENT_ID }}" >> secrets.properties
+          echo "googleDriveClientSecret=${{ secrets.CLIENT_SECRET }}" >> secrets.properties
       - name: build
         run: ./gradlew build
       - name: capture build artifacts
