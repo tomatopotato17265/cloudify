@@ -18,6 +18,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import tomatopotato.cloudify.client.gui.screens.ImportWorldScreen;
 
 @Mixin(SelectWorldScreen.class)
 public abstract class SelectWorldScreenMixin {
@@ -50,7 +51,14 @@ public abstract class SelectWorldScreenMixin {
 		this.playWorldButton = topRow.addChild(
 			Button.builder(Component.translatable("options.select_world.play_world"), button -> list.getSelectedOpt().ifPresent(joinWorld)).width(98).build()
 		);
-		topRow.addChild(Button.builder(Component.translatable("options.select_world.import_world"), button -> {}).width(98).build());
+		topRow.addChild(
+			Button.builder(
+					Component.translatable("options.select_world.import_world"),
+					button -> Minecraft.getInstance().gui.setScreen(new ImportWorldScreen((Screen) (Object) this))
+				)
+				.width(98)
+				.build()
+		);
 		topRow.addChild(
 			Button.builder(
 					Component.translatable("options.select_world.create_world"),
