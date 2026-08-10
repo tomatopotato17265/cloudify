@@ -73,6 +73,24 @@ processResources {
 	}
 }
 
+if (!secretsFile.exists()) {
+	throw new GradleException("secrets.properties not found. Copy secrets.properties.example to secrets.properties and fill in your Google OAuth credentials.")
+}
+def secrets = new Properties()
+secretsFile.withInputStream { secrets.load(it) }
+
+processClientResources {
+	inputs.property "googleDriveClientId", secrets.getProperty("googleDriveClientId")
+	inputs.property "googleDriveClientSecret", secrets.getProperty("googleDriveClientSecret")
+
+	filesMatching("cloudify-google-drive.properties") {
+		expand(
+			"googleDriveClientId": secrets.getProperty("googleDriveClientId"),
+			"googleDriveClientSecret": secrets.getProperty("googleDriveClientSecret")
+		)
+	}
+}
+
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 25
 }
