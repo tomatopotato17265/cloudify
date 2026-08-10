@@ -73,6 +73,7 @@ processResources {
 	}
 }
 
+def secretsFile = file("secrets.properties")
 if (!secretsFile.exists()) {
 	throw new GradleException("secrets.properties not found. Copy secrets.properties.example to secrets.properties and fill in your Google OAuth credentials.")
 }
