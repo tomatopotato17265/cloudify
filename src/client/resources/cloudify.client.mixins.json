@@ -5,7 +5,8 @@
 	"client": [
 		"ExampleClientMixin",
 		"OptionsScreenMixin",
-		"SelectWorldScreenMixin"
+		"SelectWorldScreenMixin",
+		"WorldListEntryMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

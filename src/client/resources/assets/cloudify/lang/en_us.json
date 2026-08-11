@@ -25,5 +25,6 @@
 	"options.select_world.import_world.failed.title": "Import Failed",
 	"options.select_world.import_world.failed.message": "The following worlds failed to import: %s",
 	"options.select_world.create_world": "Create World",
+	"options.select_world.delete_from_drive": "Delete world from Google Drive?",
 	"selectWorld.select": "Play World"
 }
