@@ -10,18 +10,13 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
@@ -29,17 +24,15 @@ import tomatopotato.cloudify.Cloudify;
 public class GoogleDriveWorldSync {
 	private static final String DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 	private static final String DRIVE_FOLDER_NAME = "Cloudify";
-	private static final String ZIP_EXTENSION = ".zip";
-	private static final String METADATA_EXTENSION = ".metadata.json";
-	private static final String ICON_EXTENSION = ".icon.png";
+	private static final String METADATA_FILE_NAME = "metadata.json";
+	private static final String ICON_FILE_NAME = "icon.png";
 
 	public record WorldMetadata(String displayName, String gameMode, boolean hardcore, String version, long lastPlayed) {
 	}
 
 	public record DriveWorldEntry(
-		String fileId,
+		String folderId,
 		String name,
-		long sizeBytes,
 		String displayName,
 		String gameMode,
 		boolean hardcore,
@@ -58,21 +51,17 @@ public class GoogleDriveWorldSync {
 			Credential credential = GoogleDriveLogin.getCredential();
 			Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
 
-			String folderId = findOrCreateFolder(drive);
+			String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
+			String worldFolderId = findOrCreateFolder(drive, worldName, cloudifyFolderId);
 
-			Path zipFile = zipWorldFolder(worldFolder, worldName);
-			try {
-				uploadFile(drive, folderId, worldName + ZIP_EXTENSION, new FileContent("application/zip", zipFile.toFile()));
-				Cloudify.LOGGER.info("Uploaded world '{}' to Google Drive", worldName);
-			} finally {
-				Files.deleteIfExists(zipFile);
-			}
+			uploadDirectory(drive, worldFolder, worldFolderId);
+			Cloudify.LOGGER.info("Uploaded world '{}' to Google Drive", worldName);
 
 			try {
-				uploadFile(drive, folderId, worldName + METADATA_EXTENSION, new ByteArrayContent("application/json", serializeMetadata(metadata)));
+				uploadFile(drive, worldFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(metadata)));
 				Cloudify.LOGGER.info("Uploaded metadata for world '{}' to Google Drive", worldName);
 				if (iconFile != null && Files.isRegularFile(iconFile)) {
-					uploadFile(drive, folderId, worldName + ICON_EXTENSION, new FileContent("image/png", iconFile.toFile()));
+					uploadFile(drive, worldFolderId, ICON_FILE_NAME, new FileContent("image/png", iconFile.toFile()));
 					Cloudify.LOGGER.info("Uploaded icon for world '{}' to Google Drive ({})", worldName, iconFile);
 				} else {
 					Cloudify.LOGGER.info("No local icon.png found for world '{}', skipping icon upload (iconFile={})", worldName, iconFile);
@@ -93,43 +82,21 @@ public class GoogleDriveWorldSync {
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
 
-		Optional<String> folderId = findFolder(drive);
-		if (folderId.isEmpty()) {
+		Optional<String> cloudifyFolderId = findFolder(drive, DRIVE_FOLDER_NAME, null);
+		if (cloudifyFolderId.isEmpty()) {
 			return List.of();
 		}
 
-		String query = "'" + folderId.get() + "' in parents and trashed = false";
-		FileList result = drive.files()
-			.list()
-			.setQ(query)
-			.setSpaces("drive")
-			.setFields("files(id, name, size, modifiedTime)")
-			.setPageSize(1000)
-			.execute();
-		List<File> files = result.getFiles();
-		if (files == null) {
+		String query = "'" + cloudifyFolderId.get() + "' in parents and mimeType = '" + DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, modifiedTime)").setPageSize(1000).execute();
+		List<File> worldFolders = result.getFiles();
+		if (worldFolders == null) {
 			return List.of();
-		}
-
-		Map<String, WorldFiles> worldsByName = new HashMap<>();
-		for (File file : files) {
-			String fileName = file.getName();
-			if (fileName.endsWith(METADATA_EXTENSION)) {
-				worldsByName.computeIfAbsent(stripSuffix(fileName, METADATA_EXTENSION), key -> new WorldFiles()).metadataFileId = file.getId();
-			} else if (fileName.endsWith(ICON_EXTENSION)) {
-				worldsByName.computeIfAbsent(stripSuffix(fileName, ICON_EXTENSION), key -> new WorldFiles()).iconFileId = file.getId();
-			} else if (fileName.endsWith(ZIP_EXTENSION)) {
-				worldsByName.computeIfAbsent(stripSuffix(fileName, ZIP_EXTENSION), key -> new WorldFiles()).zipFile = file;
-			}
 		}
 
 		List<DriveWorldEntry> entries = new ArrayList<>();
-		for (Map.Entry<String, WorldFiles> entry : worldsByName.entrySet()) {
-			WorldFiles worldFiles = entry.getValue();
-			if (worldFiles.zipFile == null) {
-				continue;
-			}
-			entries.add(toDriveWorldEntry(drive, entry.getKey(), worldFiles));
+		for (File worldFolder : worldFolders) {
+			entries.add(toDriveWorldEntry(drive, worldFolder));
 		}
 		return entries;
 	}
@@ -166,25 +133,37 @@ public class GoogleDriveWorldSync {
 		}
 	}
 
-	private static final class WorldFiles {
-		private @Nullable File zipFile;
-		private @Nullable String metadataFileId;
-		private @Nullable String iconFileId;
-	}
+	private static DriveWorldEntry toDriveWorldEntry(Drive drive, File worldFolder) throws IOException {
+		String worldName = worldFolder.getName();
+		String worldFolderId = worldFolder.getId();
+		long fallbackLastPlayed = worldFolder.getModifiedTime() != null ? worldFolder.getModifiedTime().getValue() : 0L;
 
-	private static String stripSuffix(String name, String suffix) {
-		return name.substring(0, name.length() - suffix.length());
-	}
+		String query = "'"
+			+ worldFolderId
+			+ "' in parents and trashed = false and (name = '"
+			+ METADATA_FILE_NAME
+			+ "' or name = '"
+			+ ICON_FILE_NAME
+			+ "')";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name)").execute();
+		List<File> siblingFiles = result.getFiles();
 
-	private static DriveWorldEntry toDriveWorldEntry(Drive drive, String worldName, WorldFiles worldFiles) {
-		File zipFile = worldFiles.zipFile;
-		long sizeBytes = zipFile.getSize() != null ? zipFile.getSize() : 0L;
-		long fallbackLastPlayed = zipFile.getModifiedTime() != null ? zipFile.getModifiedTime().getValue() : 0L;
+		String metadataFileId = null;
+		String iconFileId = null;
+		if (siblingFiles != null) {
+			for (File file : siblingFiles) {
+				if (file.getName().equals(METADATA_FILE_NAME)) {
+					metadataFileId = file.getId();
+				} else if (file.getName().equals(ICON_FILE_NAME)) {
+					iconFileId = file.getId();
+				}
+			}
+		}
 
 		WorldMetadata metadata = null;
-		if (worldFiles.metadataFileId != null) {
+		if (metadataFileId != null) {
 			try {
-				metadata = downloadMetadata(drive, worldFiles.metadataFileId);
+				metadata = downloadMetadata(drive, metadataFileId);
 			} catch (IOException e) {
 				Cloudify.LOGGER.warn("Failed to read metadata for world '{}' from Google Drive", worldName, e);
 			}
@@ -192,27 +171,19 @@ public class GoogleDriveWorldSync {
 			Cloudify.LOGGER.debug("No metadata sidecar found for world '{}' in Google Drive", worldName);
 		}
 
-		if (worldFiles.iconFileId != null) {
-			Cloudify.LOGGER.info("Found icon sidecar (fileId={}) for world '{}' in Google Drive", worldFiles.iconFileId, worldName);
+		if (iconFileId != null) {
+			Cloudify.LOGGER.info("Found icon sidecar (fileId={}) for world '{}' in Google Drive", iconFileId, worldName);
 		} else {
 			Cloudify.LOGGER.info("No icon sidecar found for world '{}' in Google Drive", worldName);
 		}
 
 		if (metadata != null) {
 			return new DriveWorldEntry(
-				zipFile.getId(),
-				worldName,
-				sizeBytes,
-				metadata.displayName(),
-				metadata.gameMode(),
-				metadata.hardcore(),
-				metadata.version(),
-				metadata.lastPlayed(),
-				worldFiles.iconFileId
+				worldFolderId, worldName, metadata.displayName(), metadata.gameMode(), metadata.hardcore(), metadata.version(), metadata.lastPlayed(), iconFileId
 			);
 		}
 
-		return new DriveWorldEntry(zipFile.getId(), worldName, sizeBytes, worldName, "", false, "", fallbackLastPlayed, worldFiles.iconFileId);
+		return new DriveWorldEntry(worldFolderId, worldName, worldName, "", false, "", fallbackLastPlayed, iconFileId);
 	}
 
 	private static WorldMetadata downloadMetadata(Drive drive, String fileId) throws IOException {
@@ -243,34 +214,45 @@ public class GoogleDriveWorldSync {
 		return GoogleDriveAuth.JSON_FACTORY.toByteArray(json);
 	}
 
-	private static Path zipWorldFolder(Path worldFolder, String worldName) throws IOException {
-		Path zipFile = Files.createTempFile("cloudify-" + worldName, ".zip");
-		try (OutputStream fileOut = Files.newOutputStream(zipFile); ZipOutputStream zipOut = new ZipOutputStream(fileOut)) {
-			try (var paths = Files.walk(worldFolder)) {
-				for (Path path : (Iterable<Path>) paths.filter(Files::isRegularFile)::iterator) {
-					zipOut.putNextEntry(new ZipEntry(worldFolder.relativize(path).toString().replace('\\', '/')));
-					Files.copy(path, zipOut);
-					zipOut.closeEntry();
+	private static void uploadDirectory(Drive drive, Path localDir, String parentFolderId) throws IOException {
+		try (var children = Files.list(localDir)) {
+			for (Path child : (Iterable<Path>) children::iterator) {
+				String name = child.getFileName().toString();
+				try {
+					if (Files.isDirectory(child)) {
+						String childFolderId = findOrCreateFolder(drive, name, parentFolderId);
+						uploadDirectory(drive, child, childFolderId);
+					} else {
+						uploadFile(drive, parentFolderId, name, new FileContent("application/octet-stream", child.toFile()));
+					}
+				} catch (IOException e) {
+					Cloudify.LOGGER.warn("Failed to upload '{}', skipping (it may have been a transient file rewritten by the game)", child, e);
 				}
 			}
 		}
-		return zipFile;
 	}
 
-	private static String findOrCreateFolder(Drive drive) throws IOException {
-		Optional<String> existingFolderId = findFolder(drive);
+	private static String findOrCreateFolder(Drive drive, String name, @Nullable String parentId) throws IOException {
+		Optional<String> existingFolderId = findFolder(drive, name, parentId);
 		if (existingFolderId.isPresent()) {
 			return existingFolderId.get();
 		}
 
-		File folderMetadata = new File().setName(DRIVE_FOLDER_NAME).setMimeType(DRIVE_FOLDER_MIME_TYPE);
+		File folderMetadata = new File().setName(name).setMimeType(DRIVE_FOLDER_MIME_TYPE);
+		if (parentId != null) {
+			folderMetadata.setParents(List.of(parentId));
+		}
 		File folder = drive.files().create(folderMetadata).setFields("id").execute();
 		return folder.getId();
 	}
 
-	private static Optional<String> findFolder(Drive drive) throws IOException {
-		String query = "mimeType = '" + DRIVE_FOLDER_MIME_TYPE + "' and name = '" + DRIVE_FOLDER_NAME + "' and trashed = false";
-		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
+	private static Optional<String> findFolder(Drive drive, String name, @Nullable String parentId) throws IOException {
+		StringBuilder query = new StringBuilder("mimeType = '").append(DRIVE_FOLDER_MIME_TYPE).append("' and name = '").append(name).append("' and trashed = false");
+		if (parentId != null) {
+			query.append(" and '").append(parentId).append("' in parents");
+		}
+
+		FileList result = drive.files().list().setQ(query.toString()).setSpaces("drive").setFields("files(id)").execute();
 		List<File> matches = result.getFiles();
 		if (matches == null || matches.isEmpty()) {
 			return Optional.empty();

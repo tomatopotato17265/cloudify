@@ -1,6 +1,8 @@
 package tomatopotato.cloudify.client;
 
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.SharedConstants;
@@ -11,6 +13,8 @@ import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
 
 public class CloudifyClient implements ClientModInitializer {
+	private static final ExecutorService UPLOAD_EXECUTOR = Executors.newSingleThreadExecutor(r -> new Thread(r, "cloudify-world-upload"));
+
 	@Override
 	public void onInitializeClient() {
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
@@ -18,7 +22,7 @@ public class CloudifyClient implements ClientModInitializer {
 			String worldName = worldFolder.normalize().getFileName().toString();
 			WorldMetadata metadata = gatherMetadata(server);
 			Path iconFile = server.getWorldPath(LevelResource.ICON_FILE);
-			new Thread(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile), "cloudify-world-upload").start();
+			UPLOAD_EXECUTOR.execute(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile));
 		});
 	}
 
