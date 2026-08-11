@@ -70,11 +70,15 @@ public class GoogleDriveWorldSync {
 
 			try {
 				uploadFile(drive, folderId, worldName + METADATA_EXTENSION, new ByteArrayContent("application/json", serializeMetadata(metadata)));
+				Cloudify.LOGGER.info("Uploaded metadata for world '{}' to Google Drive", worldName);
 				if (iconFile != null && Files.isRegularFile(iconFile)) {
 					uploadFile(drive, folderId, worldName + ICON_EXTENSION, new FileContent("image/png", iconFile.toFile()));
+					Cloudify.LOGGER.info("Uploaded icon for world '{}' to Google Drive ({})", worldName, iconFile);
+				} else {
+					Cloudify.LOGGER.info("No local icon.png found for world '{}', skipping icon upload (iconFile={})", worldName, iconFile);
 				}
 			} catch (IOException e) {
-				Cloudify.LOGGER.warn("Failed to upload metadata for world '{}' to Google Drive", worldName, e);
+				Cloudify.LOGGER.warn("Failed to upload metadata/icon for world '{}' to Google Drive", worldName, e);
 			}
 		} catch (IOException e) {
 			Cloudify.LOGGER.error("Failed to upload world '{}' to Google Drive", worldName, e);
@@ -142,6 +146,26 @@ public class GoogleDriveWorldSync {
 		}
 	}
 
+	public static byte[] downloadIcon(String fileId) throws IOException {
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		try (InputStream in = drive.files().get(fileId).executeMediaAsInputStream()) {
+			return in.readAllBytes();
+		}
+	}
+
+	public static CompletableFuture<byte[]> downloadIconAsync(String fileId) {
+		return CompletableFuture.supplyAsync(() -> downloadIconUnchecked(fileId), Util.backgroundExecutor());
+	}
+
+	private static byte[] downloadIconUnchecked(String fileId) {
+		try {
+			return downloadIcon(fileId);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
 	private static final class WorldFiles {
 		private @Nullable File zipFile;
 		private @Nullable String metadataFileId;
@@ -164,6 +188,14 @@ public class GoogleDriveWorldSync {
 			} catch (IOException e) {
 				Cloudify.LOGGER.warn("Failed to read metadata for world '{}' from Google Drive", worldName, e);
 			}
+		} else {
+			Cloudify.LOGGER.debug("No metadata sidecar found for world '{}' in Google Drive", worldName);
+		}
+
+		if (worldFiles.iconFileId != null) {
+			Cloudify.LOGGER.info("Found icon sidecar (fileId={}) for world '{}' in Google Drive", worldFiles.iconFileId, worldName);
+		} else {
+			Cloudify.LOGGER.info("No icon sidecar found for world '{}' in Google Drive", worldName);
 		}
 
 		if (metadata != null) {

@@ -9,6 +9,7 @@ import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
@@ -26,6 +27,8 @@ public class ImportWorldScreen extends Screen {
 	private HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private State state = State.LOADING;
 	private List<DriveWorldEntry> entries = List.of();
+	private @Nullable ImportWorldSelectionList worldList;
+	private Button importButton;
 
 	public ImportWorldScreen(Screen lastScreen) {
 		super(Component.translatable("options.select_world.import_world.title"));
@@ -50,12 +53,13 @@ public class ImportWorldScreen extends Screen {
 			return;
 		}
 
-		this.state = State.LOADING;
-		this.rebuild();
 		this.loadWorlds();
 	}
 
 	private void loadWorlds() {
+		this.state = State.LOADING;
+		this.rebuild();
+
 		GoogleDriveWorldSync.listWorldsAsync().handleAsync((result, error) -> {
 			if (this.minecraft.gui.screen() != this) {
 				return null;
@@ -76,29 +80,82 @@ public class ImportWorldScreen extends Screen {
 
 	private void rebuild() {
 		this.clearWidgets();
+		if (this.worldList != null) {
+			this.worldList.clearEntries();
+		}
 		this.layout = new HeaderAndFooterLayout(this, 33);
 		this.layout.addTitleHeader(this.title, this.font);
+		this.worldList = null;
 
-		LinearLayout content = this.layout.addToContents(LinearLayout.vertical()).spacing(8);
-		content.defaultCellSetting().alignHorizontallyCenter();
-		content.addChild(new StringWidget(this.createStatusMessage(), this.font));
+		switch (this.state) {
+			case NOT_LOGGED_IN -> this.buildNotLoggedIn();
+			case LOADING -> this.buildLoading();
+			case ERROR -> this.buildError();
+			case LOADED -> this.buildLoaded();
+		}
 
 		LinearLayout buttonRow = LinearLayout.horizontal().spacing(4);
-		buttonRow.addChild(Button.builder(Component.translatable("options.select_world.import_world.import"), button -> {}).width(98).build());
+		this.importButton = buttonRow.addChild(
+			Button.builder(Component.translatable("options.select_world.import_world.import"), button -> {}).width(98).build()
+		);
+		this.importButton.active = this.worldList != null && !this.worldList.getCheckedEntries().isEmpty();
 		buttonRow.addChild(Button.builder(CommonComponents.GUI_CANCEL, button -> this.onClose()).width(98).build());
 		this.layout.addToFooter(buttonRow);
 
 		this.layout.visitWidgets(this::addRenderableWidget);
 		this.repositionElements();
+
+		if (this.worldList != null) {
+			this.worldList.updateSizeAndPosition(this.worldList.getWidth(), this.worldList.getHeight(), this.worldList.getX(), this.worldList.getY());
+		}
 	}
 
-	private Component createStatusMessage() {
-		return switch (this.state) {
-			case NOT_LOGGED_IN -> Component.translatable("options.select_world.import_world.not_logged_in");
-			case LOADING -> Component.translatable("options.select_world.import_world.loading");
-			case ERROR -> Component.translatable("options.select_world.import_world.error");
-			case LOADED -> Component.translatable("options.select_world.import_world.loaded", this.entries.size());
-		};
+	private LinearLayout createMessageContent() {
+		LinearLayout content = this.layout.addToContents(LinearLayout.vertical().spacing(8));
+		content.defaultCellSetting().alignHorizontallyCenter();
+		return content;
+	}
+
+	private void buildNotLoggedIn() {
+		LinearLayout content = this.createMessageContent();
+		content.addChild(new StringWidget(Component.translatable("options.select_world.import_world.not_logged_in"), this.font));
+		content.addChild(
+			Button.builder(
+					Component.translatable("options.select_world.import_world.log_in"),
+					button -> this.minecraft.gui.setScreen(new CloudSyncingScreen(this))
+				)
+				.width(150)
+				.build()
+		);
+	}
+
+	private void buildLoading() {
+		LinearLayout content = this.createMessageContent();
+		content.addChild(new StringWidget(Component.translatable("options.select_world.import_world.loading"), this.font));
+	}
+
+	private void buildError() {
+		LinearLayout content = this.createMessageContent();
+		content.addChild(new StringWidget(Component.translatable("options.select_world.import_world.error"), this.font));
+		content.addChild(
+			Button.builder(Component.translatable("options.select_world.import_world.retry"), button -> this.loadWorlds()).width(150).build()
+		);
+	}
+
+	private void buildLoaded() {
+		if (this.entries.isEmpty()) {
+			LinearLayout content = this.createMessageContent();
+			content.addChild(new StringWidget(Component.translatable("options.select_world.import_world.empty"), this.font));
+			return;
+		}
+
+		this.worldList = this.layout.addToContents(
+			new ImportWorldSelectionList(this.minecraft, this.width, this.layout.getContentHeight(), this.entries, this::updateImportButtonState)
+		);
+	}
+
+	private void updateImportButtonState() {
+		this.importButton.active = this.worldList != null && !this.worldList.getCheckedEntries().isEmpty();
 	}
 
 	@Override
