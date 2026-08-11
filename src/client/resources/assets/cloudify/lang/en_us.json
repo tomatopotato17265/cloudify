@@ -12,6 +12,10 @@
 	"options.select_world.import_world": "Import World",
 	"options.select_world.import_world.title": "Import World",
 	"options.select_world.import_world.import": "Import",
+	"options.select_world.import_world.not_logged_in": "Log in with Google Drive to import a world",
+	"options.select_world.import_world.loading": "Loading worlds from Google Drive...",
+	"options.select_world.import_world.error": "Failed to load worlds from Google Drive",
+	"options.select_world.import_world.loaded": "Found %s world(s) in Google Drive",
 	"options.select_world.create_world": "Create World",
 	"selectWorld.select": "Play World"
 }
