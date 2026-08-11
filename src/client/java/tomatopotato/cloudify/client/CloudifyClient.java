@@ -17,7 +17,7 @@ public class CloudifyClient implements ClientModInitializer {
 			Path worldFolder = server.getWorldPath(LevelResource.ROOT);
 			String worldName = worldFolder.normalize().getFileName().toString();
 			WorldMetadata metadata = gatherMetadata(server);
-			Path iconFile = server.getWorldScreenshotFile().orElse(null);
+			Path iconFile = server.getWorldPath(LevelResource.ICON_FILE);
 			new Thread(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile), "cloudify-world-upload").start();
 		});
 	}
