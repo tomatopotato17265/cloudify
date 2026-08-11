@@ -1,7 +1,11 @@
 package tomatopotato.cloudify.client.gui.screens;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
@@ -9,6 +13,8 @@ import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Util;
+import net.minecraft.world.level.storage.LevelStorageSource;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
@@ -60,22 +66,49 @@ public class ImportWorldScreen extends Screen {
 		this.state = State.LOADING;
 		this.rebuild();
 
-		GoogleDriveWorldSync.listWorldsAsync().handleAsync((result, error) -> {
-			if (this.minecraft.gui.screen() != this) {
+		GoogleDriveWorldSync.listWorldsAsync()
+			.thenCombine(this.loadLocalLastPlayedTimes(), ImportWorldScreen::filterUpToDateEntries)
+			.handleAsync((result, error) -> {
+				if (this.minecraft.gui.screen() != this) {
+					return null;
+				}
+
+				if (error != null) {
+					Cloudify.LOGGER.error("Failed to list Google Drive worlds", error);
+					this.state = State.ERROR;
+				} else {
+					this.entries = result;
+					this.state = State.LOADED;
+				}
+
+				this.rebuild();
 				return null;
-			}
+			}, this.minecraft);
+	}
 
-			if (error != null) {
-				Cloudify.LOGGER.error("Failed to list Google Drive worlds", error);
-				this.state = State.ERROR;
-			} else {
-				this.entries = result;
-				this.state = State.LOADED;
+	private CompletableFuture<Map<String, Long>> loadLocalLastPlayedTimes() {
+		return CompletableFuture.supplyAsync(() -> {
+			Map<String, Long> lastPlayedByName = new HashMap<>();
+			for (LevelStorageSource.LevelDirectory directory : this.minecraft.getLevelSource().findLevelCandidates()) {
+				try {
+					long lastPlayed = Files.getLastModifiedTime(directory.dataFile()).toMillis();
+					String name = directory.path().getFileName().toString();
+					lastPlayedByName.merge(name, lastPlayed, Math::max);
+				} catch (IOException e) {
+					Cloudify.LOGGER.warn("Failed to read level.dat modification time for '{}'", directory.path(), e);
+				}
 			}
+			return lastPlayedByName;
+		}, Util.backgroundExecutor());
+	}
 
-			this.rebuild();
-			return null;
-		}, this.minecraft);
+	private static List<DriveWorldEntry> filterUpToDateEntries(List<DriveWorldEntry> driveEntries, Map<String, Long> localLastPlayedByName) {
+		return driveEntries.stream()
+			.filter(entry -> {
+				Long localLastPlayed = localLastPlayedByName.get(entry.name());
+				return localLastPlayed == null || localLastPlayed < entry.lastPlayedMillis();
+			})
+			.toList();
 	}
 
 	private void rebuild() {

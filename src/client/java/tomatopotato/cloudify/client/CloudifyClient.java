@@ -1,5 +1,7 @@
 package tomatopotato.cloudify.client;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,11 +35,20 @@ public class CloudifyClient implements ClientModInitializer {
 				server.getDefaultGameType().getName(),
 				server.getWorldData().isHardcore(),
 				SharedConstants.getCurrentVersion().name(),
-				System.currentTimeMillis()
+				readLastPlayed(server)
 			);
 		} catch (Exception e) {
 			Cloudify.LOGGER.warn("Failed to gather world metadata for Google Drive upload", e);
 			return new WorldMetadata("", "", false, "", System.currentTimeMillis());
+		}
+	}
+
+	private static long readLastPlayed(MinecraftServer server) {
+		try {
+			return Files.getLastModifiedTime(server.getWorldPath(LevelResource.LEVEL_DATA_FILE)).toMillis();
+		} catch (IOException e) {
+			Cloudify.LOGGER.warn("Failed to read level.dat modification time, falling back to current time", e);
+			return System.currentTimeMillis();
 		}
 	}
 }
