@@ -19,6 +19,11 @@
 	"options.select_world.import_world.retry": "Retry",
 	"options.select_world.import_world.empty": "No worlds found in Google Drive",
 	"options.select_world.import_world.unknown_info": "Unknown",
+	"options.select_world.import_world.importing": "Importing worlds from Google Drive...",
+	"options.select_world.import_world.confirm_overwrite.title": "Overwrite Local Worlds?",
+	"options.select_world.import_world.confirm_overwrite.message": "The following local worlds will be replaced with their Google Drive versions: %s",
+	"options.select_world.import_world.failed.title": "Import Failed",
+	"options.select_world.import_world.failed.message": "The following worlds failed to import: %s",
 	"options.select_world.create_world": "Create World",
 	"selectWorld.select": "Play World"
 }

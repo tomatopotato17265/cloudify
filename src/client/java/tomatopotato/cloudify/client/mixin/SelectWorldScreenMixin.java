@@ -54,7 +54,7 @@ public abstract class SelectWorldScreenMixin {
 		topRow.addChild(
 			Button.builder(
 					Component.translatable("options.select_world.import_world"),
-					button -> Minecraft.getInstance().gui.setScreen(new ImportWorldScreen((Screen) (Object) this))
+					button -> Minecraft.getInstance().gui.setScreen(new ImportWorldScreen((Screen) (Object) this, list::returnToScreen))
 				)
 				.width(98)
 				.build()

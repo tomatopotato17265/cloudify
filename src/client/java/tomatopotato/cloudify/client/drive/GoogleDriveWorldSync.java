@@ -133,6 +133,50 @@ public class GoogleDriveWorldSync {
 		}
 	}
 
+	public static CompletableFuture<Void> importWorldAsync(DriveWorldEntry entry, Path targetDir) {
+		return CompletableFuture.runAsync(() -> importWorldUnchecked(entry, targetDir), Util.backgroundExecutor());
+	}
+
+	private static void importWorldUnchecked(DriveWorldEntry entry, Path targetDir) {
+		try {
+			importWorld(entry, targetDir);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static void importWorld(DriveWorldEntry entry, Path targetDir) throws IOException {
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		downloadDirectory(drive, entry.folderId(), targetDir, true);
+	}
+
+	private static void downloadDirectory(Drive drive, String folderId, Path targetDir, boolean isRoot) throws IOException {
+		Files.createDirectories(targetDir);
+
+		String query = "'" + folderId + "' in parents and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType)").setPageSize(1000).execute();
+		List<File> children = result.getFiles();
+		if (children == null) {
+			return;
+		}
+
+		for (File child : children) {
+			String name = child.getName();
+			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(ICON_FILE_NAME))) {
+				continue;
+			}
+
+			if (DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
+				downloadDirectory(drive, child.getId(), targetDir.resolve(name), false);
+			} else {
+				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
+					Files.copy(in, targetDir.resolve(name));
+				}
+			}
+		}
+	}
+
 	private static DriveWorldEntry toDriveWorldEntry(Drive drive, File worldFolder) throws IOException {
 		String worldName = worldFolder.getName();
 		String worldFolderId = worldFolder.getId();

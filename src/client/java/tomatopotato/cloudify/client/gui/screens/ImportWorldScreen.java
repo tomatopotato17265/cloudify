@@ -1,15 +1,24 @@
 package tomatopotato.cloudify.client.gui.screens;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
+import net.minecraft.client.gui.screens.AlertScreen;
+import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.client.gui.screens.GenericMessageScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
@@ -30,15 +39,17 @@ public class ImportWorldScreen extends Screen {
 	}
 
 	private final Screen lastScreen;
+	private final Runnable onImportComplete;
 	private HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private State state = State.LOADING;
 	private List<DriveWorldEntry> entries = List.of();
 	private @Nullable ImportWorldSelectionList worldList;
 	private Button importButton;
 
-	public ImportWorldScreen(Screen lastScreen) {
+	public ImportWorldScreen(Screen lastScreen, Runnable onImportComplete) {
 		super(Component.translatable("options.select_world.import_world.title"));
 		this.lastScreen = lastScreen;
+		this.onImportComplete = onImportComplete;
 	}
 
 	@Override
@@ -129,7 +140,7 @@ public class ImportWorldScreen extends Screen {
 
 		LinearLayout buttonRow = LinearLayout.horizontal().spacing(4);
 		this.importButton = buttonRow.addChild(
-			Button.builder(Component.translatable("options.select_world.import_world.import"), button -> {}).width(98).build()
+			Button.builder(Component.translatable("options.select_world.import_world.import"), button -> this.startImport()).width(98).build()
 		);
 		this.importButton.active = this.worldList != null && !this.worldList.getCheckedEntries().isEmpty();
 		buttonRow.addChild(Button.builder(CommonComponents.GUI_CANCEL, button -> this.onClose()).width(98).build());
@@ -189,6 +200,134 @@ public class ImportWorldScreen extends Screen {
 
 	private void updateImportButtonState() {
 		this.importButton.active = this.worldList != null && !this.worldList.getCheckedEntries().isEmpty();
+	}
+
+	private void startImport() {
+		if (this.worldList == null) {
+			return;
+		}
+
+		Set<DriveWorldEntry> selected = this.worldList.getCheckedEntries();
+		if (selected.isEmpty()) {
+			return;
+		}
+
+		LevelStorageSource levelSource = this.minecraft.getLevelSource();
+		List<DriveWorldEntry> overwriting = new ArrayList<>();
+		for (DriveWorldEntry entry : selected) {
+			if (Files.isDirectory(levelSource.getLevelPath(entry.name()))) {
+				overwriting.add(entry);
+			}
+		}
+
+		if (overwriting.isEmpty()) {
+			this.beginImport(selected);
+			return;
+		}
+
+		String names = overwriting.stream().map(DriveWorldEntry::name).collect(Collectors.joining(", "));
+		this.minecraft.gui.setScreen(
+			new ConfirmScreen(
+				confirmed -> {
+					if (confirmed) {
+						this.beginImport(selected);
+					} else {
+						this.minecraft.gui.setScreen(this);
+					}
+				},
+				Component.translatable("options.select_world.import_world.confirm_overwrite.title"),
+				Component.translatable("options.select_world.import_world.confirm_overwrite.message", names)
+			)
+		);
+	}
+
+	private void beginImport(Set<DriveWorldEntry> selected) {
+		this.minecraft.setScreenAndShow(new GenericMessageScreen(Component.translatable("options.select_world.import_world.importing")));
+		this.runImportBatch(new ArrayList<>(selected), new ArrayList<>());
+	}
+
+	private void runImportBatch(List<DriveWorldEntry> remaining, List<String> failedNames) {
+		if (remaining.isEmpty()) {
+			this.finishImport(failedNames);
+			return;
+		}
+
+		DriveWorldEntry entry = remaining.remove(0);
+		this.importOne(entry).handleAsync((ignored, error) -> {
+			if (error != null) {
+				Cloudify.LOGGER.error("Failed to import world '{}' from Google Drive", entry.name(), error);
+				failedNames.add(entry.name());
+			}
+			this.runImportBatch(remaining, failedNames);
+			return null;
+		}, this.minecraft);
+	}
+
+	private CompletableFuture<Void> importOne(DriveWorldEntry entry) {
+		LevelStorageSource levelSource = this.minecraft.getLevelSource();
+		Path savesRoot = levelSource.getBaseDir();
+		Path targetDir = levelSource.getLevelPath(entry.name());
+
+		return CompletableFuture.supplyAsync(() -> createStagingDir(savesRoot), Util.backgroundExecutor())
+			.thenCompose(
+				stagingDir -> GoogleDriveWorldSync.importWorldAsync(entry, stagingDir)
+					.thenRunAsync(() -> finalizeImport(levelSource, entry.name(), stagingDir, targetDir), Util.backgroundExecutor())
+					.whenComplete((ignored, error) -> {
+						if (error != null) {
+							deleteQuietly(stagingDir);
+						}
+					})
+			);
+	}
+
+	private static Path createStagingDir(Path savesRoot) {
+		try {
+			return Files.createTempDirectory(savesRoot, "cloudify-import-");
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static void finalizeImport(LevelStorageSource levelSource, String worldName, Path stagingDir, Path targetDir) {
+		try {
+			if (Files.isDirectory(targetDir)) {
+				try (LevelStorageSource.LevelStorageAccess access = levelSource.createAccess(worldName)) {
+					access.deleteLevel();
+				}
+			}
+			Files.move(stagingDir, targetDir);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static void deleteQuietly(Path dir) {
+		try (var paths = Files.walk(dir)) {
+			paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+				try {
+					Files.deleteIfExists(path);
+				} catch (IOException ignored) {
+				}
+			});
+		} catch (IOException e) {
+			Cloudify.LOGGER.warn("Failed to clean up staging directory '{}'", dir, e);
+		}
+	}
+
+	private void finishImport(List<String> failedNames) {
+		if (failedNames.isEmpty()) {
+			this.onImportComplete.run();
+			return;
+		}
+
+		String names = String.join(", ", failedNames);
+		this.minecraft.gui.setScreen(
+			new AlertScreen(
+				this.onImportComplete,
+				Component.translatable("options.select_world.import_world.failed.title"),
+				Component.translatable("options.select_world.import_world.failed.message", names)
+			)
+		);
 	}
 
 	@Override
