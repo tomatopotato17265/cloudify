@@ -25,6 +25,9 @@
 	"options.select_world.import_world.failed.title": "Import Failed",
 	"options.select_world.import_world.failed.message": "The following worlds failed to import: %s",
 	"options.select_world.create_world": "Create World",
-	"options.select_world.delete_world.title": "Delete World",
+	"options.select_world.delete_what": "What do you want to delete?",
+	"options.select_world.delete_scope.local": "Local only",
+	"options.select_world.delete_scope.cloud": "Cloud only",
+	"options.select_world.delete_scope.both": "Both",
 	"selectWorld.select": "Play World"
 }
