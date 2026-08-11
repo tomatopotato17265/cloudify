@@ -7,13 +7,16 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import net.minecraft.util.Util;
 import tomatopotato.cloudify.Cloudify;
 
 public class GoogleDriveWorldSync {
@@ -73,6 +76,18 @@ public class GoogleDriveWorldSync {
 		}
 
 		return files.stream().map(GoogleDriveWorldSync::toDriveWorldEntry).toList();
+	}
+
+	public static CompletableFuture<List<DriveWorldEntry>> listWorldsAsync() {
+		return CompletableFuture.supplyAsync(GoogleDriveWorldSync::listWorldsUnchecked, Util.backgroundExecutor());
+	}
+
+	private static List<DriveWorldEntry> listWorldsUnchecked() {
+		try {
+			return listWorlds();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
 	}
 
 	private static DriveWorldEntry toDriveWorldEntry(File file) {
