@@ -1,7 +1,6 @@
 package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
-import com.google.api.client.http.AbstractInputStreamContent;
 import com.google.api.client.http.ByteArrayContent;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.json.GenericJson;
@@ -21,9 +20,14 @@ import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.DRIVE_FOLDER_NAME;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.buildDriveClient;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.findFolder;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.findOrCreateFolder;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.uploadFile;
+
 public class GoogleDriveWorldSync {
-	private static final String DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
-	private static final String DRIVE_FOLDER_NAME = "Cloudify";
 	private static final String METADATA_FILE_NAME = "metadata.json";
 	private static final String ICON_FILE_NAME = "icon.png";
 
@@ -49,7 +53,7 @@ public class GoogleDriveWorldSync {
 			}
 
 			Credential credential = GoogleDriveLogin.getCredential();
-			Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+			Drive drive = buildDriveClient(credential);
 
 			String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
 			String worldFolderId = findOrCreateFolder(drive, worldName, cloudifyFolderId);
@@ -80,7 +84,7 @@ public class GoogleDriveWorldSync {
 		}
 
 		Credential credential = GoogleDriveLogin.getCredential();
-		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		Drive drive = buildDriveClient(credential);
 
 		Optional<String> cloudifyFolderId = findFolder(drive, DRIVE_FOLDER_NAME, null);
 		if (cloudifyFolderId.isEmpty()) {
@@ -115,7 +119,7 @@ public class GoogleDriveWorldSync {
 
 	public static byte[] downloadIcon(String fileId) throws IOException {
 		Credential credential = GoogleDriveLogin.getCredential();
-		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		Drive drive = buildDriveClient(credential);
 		try (InputStream in = drive.files().get(fileId).executeMediaAsInputStream()) {
 			return in.readAllBytes();
 		}
@@ -147,7 +151,7 @@ public class GoogleDriveWorldSync {
 
 	private static void importWorld(DriveWorldEntry entry, Path targetDir) throws IOException {
 		Credential credential = GoogleDriveLogin.getCredential();
-		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		Drive drive = buildDriveClient(credential);
 		downloadDirectory(drive, entry.folderId(), targetDir, true);
 	}
 
@@ -157,7 +161,7 @@ public class GoogleDriveWorldSync {
 		}
 
 		Credential credential = GoogleDriveLogin.getCredential();
-		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+		Drive drive = buildDriveClient(credential);
 
 		Optional<String> cloudifyFolderId = findFolder(drive, DRIVE_FOLDER_NAME, null);
 		if (cloudifyFolderId.isEmpty()) {
@@ -327,44 +331,4 @@ public class GoogleDriveWorldSync {
 		}
 	}
 
-	private static String findOrCreateFolder(Drive drive, String name, @Nullable String parentId) throws IOException {
-		Optional<String> existingFolderId = findFolder(drive, name, parentId);
-		if (existingFolderId.isPresent()) {
-			return existingFolderId.get();
-		}
-
-		File folderMetadata = new File().setName(name).setMimeType(DRIVE_FOLDER_MIME_TYPE);
-		if (parentId != null) {
-			folderMetadata.setParents(List.of(parentId));
-		}
-		File folder = drive.files().create(folderMetadata).setFields("id").execute();
-		return folder.getId();
-	}
-
-	private static Optional<String> findFolder(Drive drive, String name, @Nullable String parentId) throws IOException {
-		StringBuilder query = new StringBuilder("mimeType = '").append(DRIVE_FOLDER_MIME_TYPE).append("' and name = '").append(name).append("' and trashed = false");
-		if (parentId != null) {
-			query.append(" and '").append(parentId).append("' in parents");
-		}
-
-		FileList result = drive.files().list().setQ(query.toString()).setSpaces("drive").setFields("files(id)").execute();
-		List<File> matches = result.getFiles();
-		if (matches == null || matches.isEmpty()) {
-			return Optional.empty();
-		}
-		return Optional.of(matches.get(0).getId());
-	}
-
-	private static void uploadFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent) throws IOException {
-		String query = "'" + folderId + "' in parents and name = '" + fileName + "' and trashed = false";
-		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
-		List<File> matches = result.getFiles();
-
-		if (matches != null && !matches.isEmpty()) {
-			drive.files().update(matches.get(0).getId(), new File(), mediaContent).execute();
-		} else {
-			File metadata = new File().setName(fileName).setParents(List.of(folderId));
-			drive.files().create(metadata, mediaContent).execute();
-		}
-	}
 }
