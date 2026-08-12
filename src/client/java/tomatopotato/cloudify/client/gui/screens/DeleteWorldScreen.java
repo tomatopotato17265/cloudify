@@ -1,28 +1,34 @@
 package tomatopotato.cloudify.client.gui.screens;
 
-import it.unimi.dsi.fastutil.booleans.BooleanConsumer;
+import java.util.function.Consumer;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.FrameLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
 public class DeleteWorldScreen extends Screen {
-	private enum DeleteScope {
+	public enum DeleteScope {
 		LOCAL,
 		CLOUD,
 		BOTH
 	}
 
-	private final BooleanConsumer callback;
+	private final Consumer<DeleteScope> onDelete;
+	private final Runnable onCancel;
+	private final String levelName;
 	private final LinearLayout layout = LinearLayout.vertical().spacing(8);
+	private DeleteScope selectedScope = DeleteScope.LOCAL;
 
-	public DeleteWorldScreen(BooleanConsumer callback, Component title) {
+	public DeleteWorldScreen(Consumer<DeleteScope> onDelete, Runnable onCancel, Component title, String levelName) {
 		super(title);
-		this.callback = callback;
+		this.onDelete = onDelete;
+		this.onCancel = onCancel;
+		this.levelName = levelName;
 	}
 
 	@Override
@@ -33,16 +39,34 @@ public class DeleteWorldScreen extends Screen {
 			CycleButton.builder(DeleteWorldScreen::deleteScopeLabel, DeleteScope.LOCAL)
 				.withValues(DeleteScope.values())
 				.displayOnlyValue()
-				.create(Component.empty(), (button, value) -> {})
+				.create(Component.empty(), (button, value) -> this.selectedScope = value)
 		);
 
 		LinearLayout buttonRow = this.layout.addChild(LinearLayout.horizontal().spacing(4));
 		buttonRow.defaultCellSetting().paddingTop(16);
-		buttonRow.addChild(Button.builder(Component.translatable("selectWorld.deleteButton"), button -> this.callback.accept(true)).build());
-		buttonRow.addChild(Button.builder(CommonComponents.GUI_CANCEL, button -> this.callback.accept(false)).build());
+		buttonRow.addChild(Button.builder(Component.translatable("selectWorld.deleteButton"), button -> this.confirmDelete()).build());
+		buttonRow.addChild(Button.builder(CommonComponents.GUI_CANCEL, button -> this.onCancel.run()).build());
 
 		this.layout.visitWidgets(this::addRenderableWidget);
 		this.repositionElements();
+	}
+
+	private void confirmDelete() {
+		this.minecraft.gui.setScreen(
+			new ConfirmScreen(
+				result -> {
+					if (result) {
+						this.onDelete.accept(this.selectedScope);
+					} else {
+						this.onCancel.run();
+					}
+				},
+				Component.translatable("selectWorld.deleteQuestion"),
+				Component.translatable("selectWorld.deleteWarning", this.levelName),
+				Component.translatable("options.select_world.delete_confirm"),
+				CommonComponents.GUI_CANCEL
+			)
+		);
 	}
 
 	private static Component deleteScopeLabel(DeleteScope scope) {

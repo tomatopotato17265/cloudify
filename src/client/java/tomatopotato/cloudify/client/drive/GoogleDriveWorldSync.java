@@ -151,6 +151,57 @@ public class GoogleDriveWorldSync {
 		downloadDirectory(drive, entry.folderId(), targetDir, true);
 	}
 
+	public static void deleteWorld(String worldName) throws IOException {
+		if (!GoogleDriveLogin.isLoggedIn()) {
+			return;
+		}
+
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
+
+		Optional<String> cloudifyFolderId = findFolder(drive, DRIVE_FOLDER_NAME, null);
+		if (cloudifyFolderId.isEmpty()) {
+			return;
+		}
+
+		Optional<String> worldFolderId = findFolder(drive, worldName, cloudifyFolderId.get());
+		if (worldFolderId.isEmpty()) {
+			return;
+		}
+
+		trashRecursively(drive, worldFolderId.get());
+		Cloudify.LOGGER.info("Trashed world '{}' in Google Drive", worldName);
+	}
+
+	private static void trashRecursively(Drive drive, String fileId) throws IOException {
+		String query = "'" + fileId + "' in parents and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, mimeType)").setPageSize(1000).execute();
+		List<File> children = result.getFiles();
+		if (children != null) {
+			for (File child : children) {
+				if (DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
+					trashRecursively(drive, child.getId());
+				} else {
+					drive.files().update(child.getId(), new File().setTrashed(true)).execute();
+				}
+			}
+		}
+
+		drive.files().update(fileId, new File().setTrashed(true)).execute();
+	}
+
+	public static CompletableFuture<Void> deleteWorldAsync(String worldName) {
+		return CompletableFuture.runAsync(() -> deleteWorldUnchecked(worldName), Util.backgroundExecutor());
+	}
+
+	private static void deleteWorldUnchecked(String worldName) {
+		try {
+			deleteWorld(worldName);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
 	private static void downloadDirectory(Drive drive, String folderId, Path targetDir, boolean isRoot) throws IOException {
 		Files.createDirectories(targetDir);
 

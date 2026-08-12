@@ -15,7 +15,11 @@ import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
 
 public class CloudifyClient implements ClientModInitializer {
-	private static final ExecutorService UPLOAD_EXECUTOR = Executors.newSingleThreadExecutor(r -> new Thread(r, "cloudify-world-upload"));
+	private static final ExecutorService UPLOAD_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+		Thread thread = new Thread(r, "cloudify-world-upload");
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	@Override
 	public void onInitializeClient() {
