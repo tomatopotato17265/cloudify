@@ -4,7 +4,7 @@ Cloudify is a Minecraft mod that lets players back up their worlds, ~~instances,
 
 ## Download
 
-You can download Cloudify from [Modrinth](https://modrinth.com/project/cloudify) or [CurseForge](https://www.curseforge.com/minecraft/mc-mods/cloudify). Alternatively, you can download the .jars directly from this repository's [Releases](https://github.com/tomatopotato17265/cloudify/releases/latest).
+~~You can download Cloudify from [Modrinth](https://modrinth.com/project/cloudify) or [CurseForge](https://www.curseforge.com/minecraft/mc-mods/cloudify).~~ Alternatively, you can download the .jars directly from this repository's [Releases](https://github.com/tomatopotato17265/cloudify/releases/latest).
 
 ## Features
 
