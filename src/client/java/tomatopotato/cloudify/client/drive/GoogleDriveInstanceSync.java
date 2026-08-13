@@ -62,6 +62,19 @@ public class GoogleDriveInstanceSync {
 		}
 	}
 
+	public record DriveInstanceEntry(
+		String folderId,
+		String folderName,
+		String displayName,
+		String minecraftVersion,
+		String fabricLoaderVersion,
+		int modCount,
+		long lastSyncedMillis,
+		long totalSizeBytes,
+		int fileCount
+	) {
+	}
+
 	public static void syncInstance(Path gameDir, String targetName, InstanceMetadata metadata) throws IOException {
 		if (!GoogleDriveLogin.isLoggedIn()) {
 			return;
@@ -149,6 +162,153 @@ public class GoogleDriveInstanceSync {
 	private static void syncInstanceUnchecked(Path gameDir, String targetName, InstanceMetadata metadata) {
 		try {
 			syncInstance(gameDir, targetName, metadata);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	public static List<DriveInstanceEntry> listInstances() throws IOException {
+		if (!GoogleDriveLogin.isLoggedIn()) {
+			return List.of();
+		}
+
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
+
+		Optional<String> cloudifyFolderId = GoogleDriveFolders.findFolder(drive, DRIVE_FOLDER_NAME, null);
+		if (cloudifyFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		Optional<String> instancesFolderId = GoogleDriveFolders.findFolder(drive, INSTANCES_FOLDER_NAME, cloudifyFolderId.get());
+		if (instancesFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		String query = "'" + instancesFolderId.get() + "' in parents and mimeType = '" + GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, modifiedTime)").setPageSize(1000).execute();
+		List<File> instanceFolders = result.getFiles();
+		if (instanceFolders == null) {
+			return List.of();
+		}
+
+		List<DriveInstanceEntry> entries = new ArrayList<>();
+		for (File instanceFolder : instanceFolders) {
+			entries.add(toDriveInstanceEntry(drive, instanceFolder));
+		}
+		return entries;
+	}
+
+	public static CompletableFuture<List<DriveInstanceEntry>> listInstancesAsync() {
+		return CompletableFuture.supplyAsync(GoogleDriveInstanceSync::listInstancesUnchecked, Util.backgroundExecutor());
+	}
+
+	private static List<DriveInstanceEntry> listInstancesUnchecked() {
+		try {
+			return listInstances();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static DriveInstanceEntry toDriveInstanceEntry(Drive drive, File instanceFolder) throws IOException {
+		String folderName = instanceFolder.getName();
+		String folderId = instanceFolder.getId();
+		long fallbackLastSynced = instanceFolder.getModifiedTime() != null ? instanceFolder.getModifiedTime().getValue() : 0L;
+
+		Optional<InstanceMetadata> metadata;
+		try {
+			metadata = downloadMetadataIfPresent(drive, folderId);
+		} catch (IOException e) {
+			Cloudify.LOGGER.warn("Failed to read metadata for instance '{}' from Google Drive", folderName, e);
+			metadata = Optional.empty();
+		}
+
+		if (metadata.isPresent()) {
+			InstanceMetadata m = metadata.get();
+			return new DriveInstanceEntry(
+				folderId, folderName, m.displayName(), m.minecraftVersion(), m.fabricLoaderVersion(), m.mods().size(), m.lastSyncedMillis(), m.totalSizeBytes(), m.fileCount()
+			);
+		}
+
+		return new DriveInstanceEntry(folderId, folderName, folderName, "", "", 0, fallbackLastSynced, 0L, 0);
+	}
+
+	private static Optional<InstanceMetadata> downloadMetadataIfPresent(Drive drive, String instanceFolderId) throws IOException {
+		String query = "'" + instanceFolderId + "' in parents and name = '" + METADATA_FILE_NAME + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
+		List<File> matches = result.getFiles();
+		if (matches == null || matches.isEmpty()) {
+			return Optional.empty();
+		}
+
+		try (InputStream in = drive.files().get(matches.get(0).getId()).executeMediaAsInputStream()) {
+			return Optional.of(deserializeMetadata(in));
+		}
+	}
+
+	public static CompletableFuture<Void> downloadInstanceAsync(DriveInstanceEntry entry, Path targetDir) {
+		return CompletableFuture.runAsync(() -> downloadInstanceUnchecked(entry, targetDir), Util.backgroundExecutor());
+	}
+
+	private static void downloadInstanceUnchecked(DriveInstanceEntry entry, Path targetDir) {
+		try {
+			downloadInstance(entry, targetDir);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static void downloadInstance(DriveInstanceEntry entry, Path targetDir) throws IOException {
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
+		downloadDirectory(drive, entry.folderId(), targetDir, true);
+	}
+
+	private static void downloadDirectory(Drive drive, String folderId, Path targetDir, boolean isRoot) throws IOException {
+		Files.createDirectories(targetDir);
+
+		String query = "'" + folderId + "' in parents and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType)").setPageSize(1000).execute();
+		List<File> children = result.getFiles();
+		if (children == null) {
+			return;
+		}
+
+		for (File child : children) {
+			String name = child.getName();
+			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
+				continue;
+			}
+
+			if (GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
+				downloadDirectory(drive, child.getId(), targetDir.resolve(name), false);
+			} else {
+				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
+					Files.copy(in, targetDir.resolve(name));
+				}
+			}
+		}
+	}
+
+	public static void deleteInstance(String instanceFolderId) throws IOException {
+		if (!GoogleDriveLogin.isLoggedIn()) {
+			return;
+		}
+
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
+		GoogleDriveFolders.trashRecursively(drive, instanceFolderId);
+		Cloudify.LOGGER.info("Trashed instance backup (folderId={}) in Google Drive", instanceFolderId);
+	}
+
+	public static CompletableFuture<Void> deleteInstanceAsync(String instanceFolderId) {
+		return CompletableFuture.runAsync(() -> deleteInstanceUnchecked(instanceFolderId), Util.backgroundExecutor());
+	}
+
+	private static void deleteInstanceUnchecked(String instanceFolderId) {
+		try {
+			deleteInstance(instanceFolderId);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}

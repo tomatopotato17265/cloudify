@@ -65,4 +65,21 @@ public class GoogleDriveFolders {
 			return created.getId();
 		}
 	}
+
+	public static void trashRecursively(Drive drive, String fileId) throws IOException {
+		String query = "'" + fileId + "' in parents and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, mimeType)").setPageSize(1000).execute();
+		List<File> children = result.getFiles();
+		if (children != null) {
+			for (File child : children) {
+				if (DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
+					trashRecursively(drive, child.getId());
+				} else {
+					drive.files().update(child.getId(), new File().setTrashed(true)).execute();
+				}
+			}
+		}
+
+		drive.files().update(fileId, new File().setTrashed(true)).execute();
+	}
 }
