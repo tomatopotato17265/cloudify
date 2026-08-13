@@ -13,6 +13,10 @@ import org.jspecify.annotations.Nullable;
 public class GoogleDriveFolders {
 	public static final String DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 	public static final String DRIVE_FOLDER_NAME = "Cloudify";
+	public static final String WORLDS_FOLDER_NAME = "Worlds";
+	public static final String INSTANCES_FOLDER_NAME = "Instances";
+	// Reserved for future server backups; not created or used yet.
+	public static final String SERVERS_FOLDER_NAME = "Servers";
 
 	public static Drive buildDriveClient(Credential credential) {
 		return new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, credential).setApplicationName("Cloudify").build();
@@ -46,16 +50,19 @@ public class GoogleDriveFolders {
 		return Optional.of(matches.get(0).getId());
 	}
 
-	public static void uploadFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent) throws IOException {
+	public static String uploadFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent) throws IOException {
 		String query = "'" + folderId + "' in parents and name = '" + fileName + "' and trashed = false";
 		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
 		List<File> matches = result.getFiles();
 
 		if (matches != null && !matches.isEmpty()) {
-			drive.files().update(matches.get(0).getId(), new File(), mediaContent).execute();
+			String fileId = matches.get(0).getId();
+			drive.files().update(fileId, new File(), mediaContent).execute();
+			return fileId;
 		} else {
 			File metadata = new File().setName(fileName).setParents(List.of(folderId));
-			drive.files().create(metadata, mediaContent).execute();
+			File created = drive.files().create(metadata, mediaContent).setFields("id").execute();
+			return created.getId();
 		}
 	}
 }

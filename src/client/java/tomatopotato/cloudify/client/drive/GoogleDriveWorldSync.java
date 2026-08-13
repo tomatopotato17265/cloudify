@@ -22,6 +22,7 @@ import tomatopotato.cloudify.Cloudify;
 
 import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE;
 import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.DRIVE_FOLDER_NAME;
+import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.WORLDS_FOLDER_NAME;
 import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.buildDriveClient;
 import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.findFolder;
 import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.findOrCreateFolder;
@@ -56,7 +57,8 @@ public class GoogleDriveWorldSync {
 			Drive drive = buildDriveClient(credential);
 
 			String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
-			String worldFolderId = findOrCreateFolder(drive, worldName, cloudifyFolderId);
+			String worldsFolderId = findOrCreateFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId);
+			String worldFolderId = findOrCreateFolder(drive, worldName, worldsFolderId);
 
 			uploadDirectory(drive, worldFolder, worldFolderId);
 			Cloudify.LOGGER.info("Uploaded world '{}' to Google Drive", worldName);
@@ -91,7 +93,12 @@ public class GoogleDriveWorldSync {
 			return List.of();
 		}
 
-		String query = "'" + cloudifyFolderId.get() + "' in parents and mimeType = '" + DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
+		Optional<String> worldsFolderId = findFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId.get());
+		if (worldsFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		String query = "'" + worldsFolderId.get() + "' in parents and mimeType = '" + DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
 		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, modifiedTime)").setPageSize(1000).execute();
 		List<File> worldFolders = result.getFiles();
 		if (worldFolders == null) {
@@ -168,7 +175,12 @@ public class GoogleDriveWorldSync {
 			return;
 		}
 
-		Optional<String> worldFolderId = findFolder(drive, worldName, cloudifyFolderId.get());
+		Optional<String> worldsFolderId = findFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId.get());
+		if (worldsFolderId.isEmpty()) {
+			return;
+		}
+
+		Optional<String> worldFolderId = findFolder(drive, worldName, worldsFolderId.get());
 		if (worldFolderId.isEmpty()) {
 			return;
 		}
