@@ -20,6 +20,7 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.client.CloudifySettings;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
 import tomatopotato.cloudify.client.drive.GoogleDriveLoopbackServer;
 
@@ -50,13 +51,14 @@ public class CloudSyncingScreen extends Screen {
 		}
 
 		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
+		boolean autoSyncInstance = CloudifySettings.load().autoSyncInstance();
 		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
 		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
 		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
 		autoSyncRow.addChild(
-			CycleButton.booleanBuilder(Component.translatable("options.cloud_syncing.after_launch"), Component.translatable("options.cloud_syncing.before_shutdown"), true)
+			CycleButton.booleanBuilder(CommonComponents.OPTION_ON, CommonComponents.OPTION_OFF, autoSyncInstance)
 				.displayOnlyValue()
-				.create(autoSyncLabel, (button, value) -> {})
+				.create(autoSyncLabel, (button, value) -> CloudifySettings.save(new CloudifySettings.CloudifySettingsData(value)))
 		);
 
 		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
