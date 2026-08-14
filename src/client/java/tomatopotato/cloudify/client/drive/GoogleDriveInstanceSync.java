@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
@@ -76,6 +77,10 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static void syncInstance(Path gameDir, String targetName, InstanceMetadata metadata) throws IOException {
+		syncInstance(gameDir, targetName, metadata, TransferProgressListener.NO_OP, new AtomicBoolean(false));
+	}
+
+	public static void syncInstance(Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
 		if (!GoogleDriveLogin.isLoggedIn()) {
 			return;
 		}
@@ -94,19 +99,44 @@ public class GoogleDriveInstanceSync {
 		folderIdCache.put("", instanceFolderId);
 
 		Map<String, FileFingerprint> updatedEntries = new LinkedHashMap<>();
+		List<Map.Entry<String, FileFingerprint>> toUpload = new ArrayList<>();
 		long totalSizeBytes = 0L;
 
 		for (Map.Entry<String, FileFingerprint> entry : localFingerprints.entrySet()) {
+			FileFingerprint local = entry.getValue();
+			totalSizeBytes += local.sizeBytes();
+
+			FileFingerprint previous = previousManifest.entries().get(entry.getKey());
+			if (previous != null && previous.contentHash().equals(local.contentHash()) && previous.driveFileId() != null) {
+				updatedEntries.put(entry.getKey(), previous);
+			} else {
+				toUpload.add(entry);
+			}
+		}
+
+		Set<String> deletedPaths = new HashSet<>(previousManifest.entries().keySet());
+		deletedPaths.removeAll(localFingerprints.keySet());
+
+		long totalBytes = 0L;
+		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
+			totalBytes += entry.getValue().sizeBytes();
+		}
+		int totalFiles = toUpload.size() + deletedPaths.size();
+
+		long bytesTransferred = 0L;
+		int filesTransferred = 0;
+		boolean wasCancelled = false;
+		listener.onProgress(0, totalBytes, 0, totalFiles, "");
+
+		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
+			if (cancelled.get()) {
+				wasCancelled = true;
+				break;
+			}
+
 			String relativePath = entry.getKey();
 			FileFingerprint local = entry.getValue();
 			FileFingerprint previous = previousManifest.entries().get(relativePath);
-			totalSizeBytes += local.sizeBytes();
-
-			if (previous != null && previous.contentHash().equals(local.contentHash()) && previous.driveFileId() != null) {
-				updatedEntries.put(relativePath, previous);
-				continue;
-			}
-
 			try {
 				Path relative = Path.of(relativePath);
 				String folderId = resolveFolderId(drive, relative.getParent(), folderIdCache);
@@ -120,22 +150,39 @@ public class GoogleDriveInstanceSync {
 					updatedEntries.put(relativePath, previous);
 				}
 			}
+
+			bytesTransferred += local.sizeBytes();
+			filesTransferred++;
+			listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
 		}
 
-		Set<String> deletedPaths = new HashSet<>(previousManifest.entries().keySet());
-		deletedPaths.removeAll(localFingerprints.keySet());
-		for (String relativePath : deletedPaths) {
-			FileFingerprint gone = previousManifest.entries().get(relativePath);
-			if (gone.driveFileId() == null) {
-				Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
-				continue;
+		if (!wasCancelled) {
+			for (String relativePath : deletedPaths) {
+				if (cancelled.get()) {
+					wasCancelled = true;
+					break;
+				}
+
+				FileFingerprint gone = previousManifest.entries().get(relativePath);
+				if (gone.driveFileId() == null) {
+					Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
+				} else {
+					try {
+						drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
+					} catch (IOException e) {
+						Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
+						updatedEntries.put(relativePath, gone);
+					}
+				}
+
+				filesTransferred++;
+				listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
 			}
-			try {
-				drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
-			} catch (IOException e) {
-				Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
-				updatedEntries.put(relativePath, gone);
-			}
+		}
+
+		if (wasCancelled) {
+			Cloudify.LOGGER.info("Instance sync for '{}' was cancelled before completion; manifest not updated", targetName);
+			return;
 		}
 
 		InstanceManifest updatedManifest = new InstanceManifest(updatedEntries);
@@ -152,16 +199,22 @@ public class GoogleDriveInstanceSync {
 		GoogleDriveFolders.uploadFile(drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)));
 		GoogleDriveFolders.uploadFile(drive, instanceFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(updatedMetadata)));
 
-		Cloudify.LOGGER.info("Synced instance '{}' to Google Drive ({} files changed/added, {} deleted)", targetName, localFingerprints.size(), deletedPaths.size());
+		Cloudify.LOGGER.info("Synced instance '{}' to Google Drive ({} files changed/added, {} deleted)", targetName, toUpload.size(), deletedPaths.size());
 	}
 
 	public static CompletableFuture<Void> syncInstanceAsync(Path gameDir, String targetName, InstanceMetadata metadata) {
-		return CompletableFuture.runAsync(() -> syncInstanceUnchecked(gameDir, targetName, metadata), Util.backgroundExecutor());
+		return syncInstanceAsync(gameDir, targetName, metadata, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
 
-	private static void syncInstanceUnchecked(Path gameDir, String targetName, InstanceMetadata metadata) {
+	public static CompletableFuture<Void> syncInstanceAsync(
+		Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled
+	) {
+		return CompletableFuture.runAsync(() -> syncInstanceUnchecked(gameDir, targetName, metadata, listener, cancelled), Util.backgroundExecutor());
+	}
+
+	private static void syncInstanceUnchecked(Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) {
 		try {
-			syncInstance(gameDir, targetName, metadata);
+			syncInstance(gameDir, targetName, metadata, listener, cancelled);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
@@ -248,47 +301,77 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static CompletableFuture<Void> downloadInstanceAsync(DriveInstanceEntry entry, Path targetDir) {
-		return CompletableFuture.runAsync(() -> downloadInstanceUnchecked(entry, targetDir), Util.backgroundExecutor());
+		return downloadInstanceAsync(entry, targetDir, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
 
-	private static void downloadInstanceUnchecked(DriveInstanceEntry entry, Path targetDir) {
+	public static CompletableFuture<Void> downloadInstanceAsync(DriveInstanceEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
+		return CompletableFuture.runAsync(() -> downloadInstanceUnchecked(entry, targetDir, listener, cancelled), Util.backgroundExecutor());
+	}
+
+	private static void downloadInstanceUnchecked(DriveInstanceEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
 		try {
-			downloadInstance(entry, targetDir);
+			downloadInstance(entry, targetDir, listener, cancelled);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 	}
 
-	private static void downloadInstance(DriveInstanceEntry entry, Path targetDir) throws IOException {
+	private static void downloadInstance(DriveInstanceEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
-		downloadDirectory(drive, entry.folderId(), targetDir, true);
+
+		long totalBytes = entry.totalSizeBytes();
+		int totalFiles = entry.fileCount();
+		listener.onProgress(0, totalBytes, 0, totalFiles, "");
+
+		TransferState state = new TransferState();
+		boolean completed = downloadDirectory(drive, entry.folderId(), targetDir, true, listener, cancelled, totalBytes, totalFiles, state);
+		if (!completed) {
+			Cloudify.LOGGER.info("Instance restore for '{}' was cancelled before completion", entry.displayName());
+		}
 	}
 
-	private static void downloadDirectory(Drive drive, String folderId, Path targetDir, boolean isRoot) throws IOException {
+	private static final class TransferState {
+		long bytesTransferred;
+		int filesTransferred;
+	}
+
+	private static boolean downloadDirectory(
+		Drive drive, String folderId, Path targetDir, boolean isRoot, TransferProgressListener listener, AtomicBoolean cancelled, long totalBytes, int totalFiles, TransferState state
+	) throws IOException {
 		Files.createDirectories(targetDir);
 
 		String query = "'" + folderId + "' in parents and trashed = false";
-		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType)").setPageSize(1000).execute();
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType, size)").setPageSize(1000).execute();
 		List<File> children = result.getFiles();
 		if (children == null) {
-			return;
+			return true;
 		}
 
 		for (File child : children) {
+			if (cancelled.get()) {
+				return false;
+			}
+
 			String name = child.getName();
 			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
 				continue;
 			}
 
 			if (GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
-				downloadDirectory(drive, child.getId(), targetDir.resolve(name), false);
+				if (!downloadDirectory(drive, child.getId(), targetDir.resolve(name), false, listener, cancelled, totalBytes, totalFiles, state)) {
+					return false;
+				}
 			} else {
 				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
 					Files.copy(in, targetDir.resolve(name));
 				}
+				state.bytesTransferred += child.getSize() != null ? child.getSize() : 0L;
+				state.filesTransferred++;
+				listener.onProgress(state.bytesTransferred, totalBytes, state.filesTransferred, totalFiles, name);
 			}
 		}
+		return true;
 	}
 
 	public static void deleteInstance(String instanceFolderId) throws IOException {
