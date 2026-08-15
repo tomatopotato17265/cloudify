@@ -15,6 +15,8 @@
 	"options.backup_instance.syncing": "Syncing instance to Google Drive...",
 	"options.backup_instance.failed.title": "Backup Failed",
 	"options.backup_instance.failed.message": "Failed to back up the instance to Google Drive. Check the log for details.",
+	"options.instance_transfer.starting": "Starting...",
+	"options.instance_transfer.progress": "%s / %s files (%s / %s)",
 	"options.select_world.play_world": "Play World",
 	"options.select_world.import_world": "Import World",
 	"options.select_world.import_world.title": "Import World",

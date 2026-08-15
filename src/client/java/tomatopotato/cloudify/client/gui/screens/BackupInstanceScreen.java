@@ -11,7 +11,6 @@ import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.client.gui.screens.ConfirmScreen;
-import net.minecraft.client.gui.screens.GenericMessageScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
@@ -78,26 +77,27 @@ public class BackupInstanceScreen extends Screen {
 	}
 
 	private void beginBackup(String name) {
-		this.minecraft.setScreenAndShow(new GenericMessageScreen(Component.translatable("options.backup_instance.syncing")));
-
 		Path gameDir = FabricLoader.getInstance().getGameDir();
 		InstanceMetadata metadata = InstanceMetadataFactory.gather(name);
 
-		GoogleDriveInstanceSync.syncInstanceAsync(gameDir, name, metadata).handleAsync((ignored, error) -> {
-			if (error != null) {
-				Cloudify.LOGGER.error("Failed to back up instance '{}' to Google Drive", name, error);
-				this.minecraft.gui.setScreen(
-					new AlertScreen(
-						() -> this.minecraft.gui.setScreen(this.lastScreen),
-						Component.translatable("options.backup_instance.failed.title"),
-						Component.translatable("options.backup_instance.failed.message")
-					)
-				);
-			} else {
-				this.minecraft.gui.setScreen(this.lastScreen);
-			}
-			return null;
-		}, this.minecraft);
+		this.minecraft.gui.setScreen(
+			new InstanceTransferProgressScreen(
+				Component.translatable("options.backup_instance.syncing"),
+				this.lastScreen,
+				(listener, cancelled) -> GoogleDriveInstanceSync.syncInstanceAsync(gameDir, name, metadata, listener, cancelled),
+				() -> this.minecraft.gui.setScreen(this.lastScreen),
+				error -> {
+					Cloudify.LOGGER.error("Failed to back up instance '{}' to Google Drive", name, error);
+					this.minecraft.gui.setScreen(
+						new AlertScreen(
+							() -> this.minecraft.gui.setScreen(this.lastScreen),
+							Component.translatable("options.backup_instance.failed.title"),
+							Component.translatable("options.backup_instance.failed.message")
+						)
+					);
+				}
+			)
+		);
 	}
 
 	@Override
