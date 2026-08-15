@@ -66,6 +66,11 @@ public class CloudSyncingScreen extends Screen {
 				.width(200)
 				.build()
 		);
+		content.addChild(
+			Button.builder(Component.translatable("options.cloud_syncing.restore_instance"), button -> this.minecraft.gui.setScreen(new ImportInstanceScreen(this)))
+				.width(200)
+				.build()
+		);
 
 		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
 		this.layout.visitWidgets(this::addRenderableWidget);

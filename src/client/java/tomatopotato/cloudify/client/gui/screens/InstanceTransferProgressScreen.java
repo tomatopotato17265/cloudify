@@ -85,7 +85,7 @@ public class InstanceTransferProgressScreen extends Screen {
 		});
 	}
 
-	private static String formatBytes(long bytes) {
+	public static String formatBytes(long bytes) {
 		if (bytes < 1024) {
 			return bytes + " B";
 		}
