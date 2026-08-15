@@ -6,6 +6,7 @@
 	"options.cloud_syncing.log_out": "Log Out",
 	"options.cloud_syncing.confirm_logout": "Are you sure you want to log out of %s?",
 	"options.cloud_syncing.auto_sync": "Automatically sync instance",
+	"options.cloud_syncing.backup_instance": "Backup Instance Now",
 	"options.backup_instance.title": "Backup Instance",
 	"options.backup_instance.name_prompt": "Backup name",
 	"options.backup_instance.backup": "Backup",

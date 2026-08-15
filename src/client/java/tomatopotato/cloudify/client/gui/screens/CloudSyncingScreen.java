@@ -61,6 +61,12 @@ public class CloudSyncingScreen extends Screen {
 				.create(autoSyncLabel, (button, value) -> CloudifySettings.save(new CloudifySettings.CloudifySettingsData(value)))
 		);
 
+		content.addChild(
+			Button.builder(Component.translatable("options.cloud_syncing.backup_instance"), button -> this.minecraft.gui.setScreen(new BackupInstanceScreen(this)))
+				.width(200)
+				.build()
+		);
+
 		this.layout.addToFooter(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(200).build());
 		this.layout.visitWidgets(this::addRenderableWidget);
 		this.repositionElements();
