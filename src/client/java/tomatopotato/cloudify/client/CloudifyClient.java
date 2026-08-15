@@ -3,21 +3,17 @@ package tomatopotato.cloudify.client;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync.InstanceMetadata;
-import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync.ModEntry;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
 
@@ -47,7 +43,7 @@ public class CloudifyClient implements ClientModInitializer {
 
 			if (CloudifySettings.load().autoSyncInstance()) {
 				Path gameDir = FabricLoader.getInstance().getGameDir();
-				InstanceMetadata instanceMetadata = gatherInstanceMetadata();
+				InstanceMetadata instanceMetadata = InstanceMetadataFactory.gather(AUTO_SYNC_INSTANCE_TARGET_NAME);
 				INSTANCE_UPLOAD_EXECUTOR.execute(() -> {
 					try {
 						GoogleDriveInstanceSync.syncInstance(gameDir, AUTO_SYNC_INSTANCE_TARGET_NAME, instanceMetadata);
@@ -80,25 +76,6 @@ public class CloudifyClient implements ClientModInitializer {
 		} catch (IOException e) {
 			Cloudify.LOGGER.warn("Failed to read level.dat modification time, falling back to current time", e);
 			return System.currentTimeMillis();
-		}
-	}
-
-	private static InstanceMetadata gatherInstanceMetadata() {
-		try {
-			List<ModEntry> mods = new ArrayList<>();
-			for (ModContainer mod : FabricLoader.getInstance().getAllMods()) {
-				mods.add(new ModEntry(mod.getMetadata().getId(), mod.getMetadata().getVersion().getFriendlyString()));
-			}
-
-			String fabricLoaderVersion = FabricLoader.getInstance()
-				.getModContainer("fabricloader")
-				.map(mod -> mod.getMetadata().getVersion().getFriendlyString())
-				.orElse("");
-
-			return new InstanceMetadata(AUTO_SYNC_INSTANCE_TARGET_NAME, SharedConstants.getCurrentVersion().name(), fabricLoaderVersion, mods, 0L, 0L, 0);
-		} catch (Exception e) {
-			Cloudify.LOGGER.warn("Failed to gather instance metadata for Google Drive sync", e);
-			return new InstanceMetadata(AUTO_SYNC_INSTANCE_TARGET_NAME, "", "", List.of(), 0L, 0L, 0);
 		}
 	}
 }
