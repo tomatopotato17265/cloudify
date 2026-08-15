@@ -3,6 +3,7 @@ package tomatopotato.cloudify.client.gui.screens;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.Optional;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -91,7 +92,8 @@ public class CloudSyncingScreen extends Screen {
 
 	private LinearLayout createLoggedInRow(String email) {
 		Component emailLabel = Component.literal(email)
-			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE));
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.WHITE)
+				.withClickEvent(new ClickEvent.Custom(Cloudify.id("log_out"), Optional.empty())));
 		FocusableTextWidget emailWidget = FocusableTextWidget.builder(emailLabel, this.font)
 			.alwaysShowBorder(false)
 			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
@@ -128,7 +130,7 @@ public class CloudSyncingScreen extends Screen {
 		});
 
 		Component googleDriveLoginLabel = Component.translatable("options.cloud_syncing.google_drive_login")
-			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(authorizationUrl)));
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.WHITE).withClickEvent(new ClickEvent.OpenUrl(authorizationUrl)));
 		FocusableTextWidget googleDriveLoginWidget = FocusableTextWidget.builder(googleDriveLoginLabel, this.font)
 			.alwaysShowBorder(false)
 			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
