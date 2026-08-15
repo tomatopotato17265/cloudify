@@ -5,17 +5,22 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.client.gui.screens.GenericMessageScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.client.InstanceRestore;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync.DriveInstanceEntry;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
@@ -183,20 +188,15 @@ public class ImportInstanceScreen extends Screen {
 	}
 
 	private void beginRestore(DriveInstanceEntry entry) {
-		Path stagingDir = createStagingDir();
+		Path gameDir = FabricLoader.getInstance().getGameDir();
+		Path stagingDir = createStagingDir(gameDir);
 
 		this.minecraft.gui.setScreen(
 			new InstanceTransferProgressScreen(
 				Component.translatable("options.restore_instance.importing"),
 				this.lastScreen,
 				(listener, cancelled) -> GoogleDriveInstanceSync.downloadInstanceAsync(entry, stagingDir, listener, cancelled),
-				() -> this.minecraft.gui.setScreen(
-					new AlertScreen(
-						() -> this.minecraft.gui.setScreen(this.lastScreen),
-						Component.translatable("options.restore_instance.downloaded.title"),
-						Component.translatable("options.restore_instance.downloaded.message", stagingDir.toString())
-					)
-				),
+				() -> this.finalizeRestore(gameDir, stagingDir),
 				error -> {
 					Cloudify.LOGGER.error("Failed to restore instance '{}' from Google Drive", entry.displayName(), error);
 					this.minecraft.gui.setScreen(
@@ -211,9 +211,43 @@ public class ImportInstanceScreen extends Screen {
 		);
 	}
 
-	private static Path createStagingDir() {
+	private void finalizeRestore(Path gameDir, Path stagingDir) {
+		this.minecraft.gui.setScreen(new GenericMessageScreen(Component.translatable("options.restore_instance.applying")));
+
+		CompletableFuture.runAsync(() -> applyRestoreUnchecked(gameDir, stagingDir), Util.backgroundExecutor()).handleAsync((ignored, error) -> {
+			if (error != null) {
+				Cloudify.LOGGER.error("Failed to finalize instance restore", error);
+				this.minecraft.gui.setScreen(
+					new AlertScreen(
+						() -> this.minecraft.gui.setScreen(this.lastScreen),
+						Component.translatable("options.restore_instance.failed.title"),
+						Component.translatable("options.restore_instance.failed.message")
+					)
+				);
+			} else {
+				this.minecraft.gui.setScreen(
+					new AlertScreen(
+						() -> this.minecraft.gui.setScreen(this.lastScreen),
+						Component.translatable("options.restore_instance.complete.title"),
+						Component.translatable("options.restore_instance.complete.message")
+					)
+				);
+			}
+			return null;
+		}, this.minecraft);
+	}
+
+	private static void applyRestoreUnchecked(Path gameDir, Path stagingDir) {
 		try {
-			return Files.createTempDirectory("cloudify-instance-restore-");
+			InstanceRestore.apply(gameDir, stagingDir);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static Path createStagingDir(Path gameDir) {
+		try {
+			return Files.createTempDirectory(gameDir.getParent(), "cloudify-instance-restore-");
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
