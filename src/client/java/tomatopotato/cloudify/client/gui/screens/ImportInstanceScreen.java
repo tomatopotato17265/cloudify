@@ -39,6 +39,7 @@ public class ImportInstanceScreen extends Screen {
 	private List<DriveInstanceEntry> entries = List.of();
 	private @Nullable ImportInstanceSelectionList instanceList;
 	private Button restoreButton;
+	private Button deleteButton;
 
 	public ImportInstanceScreen(Screen lastScreen) {
 		super(Component.translatable("options.restore_instance.title"));
@@ -106,6 +107,10 @@ public class ImportInstanceScreen extends Screen {
 			Button.builder(Component.translatable("options.restore_instance.restore"), button -> this.confirmRestore()).width(98).build()
 		);
 		this.restoreButton.active = this.instanceList != null && this.instanceList.getSelectedEntry() != null;
+		this.deleteButton = buttonRow.addChild(
+			Button.builder(Component.translatable("options.restore_instance.delete"), button -> this.confirmDelete()).width(98).build()
+		);
+		this.deleteButton.active = this.instanceList != null && this.instanceList.getSelectedEntry() != null;
 		buttonRow.addChild(Button.builder(CommonComponents.GUI_CANCEL, button -> this.onClose()).width(98).build());
 		this.layout.addToFooter(buttonRow);
 
@@ -159,7 +164,9 @@ public class ImportInstanceScreen extends Screen {
 	}
 
 	private void updateRestoreButtonState() {
-		this.restoreButton.active = this.instanceList != null && this.instanceList.getSelectedEntry() != null;
+		boolean hasSelection = this.instanceList != null && this.instanceList.getSelectedEntry() != null;
+		this.restoreButton.active = hasSelection;
+		this.deleteButton.active = hasSelection;
 	}
 
 	private void confirmRestore() {
@@ -209,6 +216,51 @@ public class ImportInstanceScreen extends Screen {
 				}
 			)
 		);
+	}
+
+	private void confirmDelete() {
+		if (this.instanceList == null) {
+			return;
+		}
+
+		DriveInstanceEntry entry = this.instanceList.getSelectedEntry();
+		if (entry == null) {
+			return;
+		}
+
+		this.minecraft.gui.setScreen(
+			new ConfirmScreen(
+				confirmed -> {
+					if (confirmed) {
+						this.beginDelete(entry);
+					} else {
+						this.minecraft.gui.setScreen(this);
+					}
+				},
+				Component.translatable("options.restore_instance.delete_confirm.title"),
+				Component.translatable("options.restore_instance.delete_confirm.message", entry.displayName())
+			)
+		);
+	}
+
+	private void beginDelete(DriveInstanceEntry entry) {
+		this.minecraft.gui.setScreen(new GenericMessageScreen(Component.translatable("options.restore_instance.deleting")));
+
+		GoogleDriveInstanceSync.deleteInstanceAsync(entry.folderId()).handleAsync((ignored, error) -> {
+			if (error != null) {
+				Cloudify.LOGGER.error("Failed to delete instance backup '{}' from Google Drive", entry.displayName(), error);
+				this.minecraft.gui.setScreen(
+					new AlertScreen(
+						this::loadInstances,
+						Component.translatable("options.restore_instance.delete_failed.title"),
+						Component.translatable("options.restore_instance.delete_failed.message")
+					)
+				);
+			} else {
+				this.loadInstances();
+			}
+			return null;
+		}, this.minecraft);
 	}
 
 	private void finalizeRestore(Path gameDir, Path stagingDir) {
