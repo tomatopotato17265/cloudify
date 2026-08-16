@@ -6,11 +6,16 @@ import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.client.CloudifySettings.AutoSyncMode;
+import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync;
+import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync.InstanceMetadata;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
 
@@ -31,6 +36,20 @@ public class CloudifyClient implements ClientModInitializer {
 			WorldMetadata metadata = gatherMetadata(server);
 			Path iconFile = server.getWorldPath(LevelResource.ICON_FILE);
 			UPLOAD_EXECUTOR.execute(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile));
+		});
+
+		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+			if (CloudifySettings.load().autoSyncMode() != AutoSyncMode.BEFORE_SHUTDOWN) {
+				return;
+			}
+
+			Path gameDir = FabricLoader.getInstance().getGameDir();
+			InstanceMetadata instanceMetadata = InstanceMetadataFactory.gather(AUTO_SYNC_INSTANCE_TARGET_NAME);
+			try {
+				GoogleDriveInstanceSync.syncInstance(gameDir, AUTO_SYNC_INSTANCE_TARGET_NAME, instanceMetadata);
+			} catch (IOException e) {
+				Cloudify.LOGGER.error("Failed to auto-sync instance to Google Drive before shutdown", e);
+			}
 		});
 	}
 
