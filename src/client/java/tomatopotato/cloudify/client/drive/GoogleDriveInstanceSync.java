@@ -85,15 +85,20 @@ public class GoogleDriveInstanceSync {
 			return;
 		}
 
+		long startedAt = System.nanoTime();
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
 
 		String cloudifyFolderId = GoogleDriveFolders.findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
 		String instancesFolderId = GoogleDriveFolders.findOrCreateFolder(drive, INSTANCES_FOLDER_NAME, cloudifyFolderId);
 		String instanceFolderId = GoogleDriveFolders.findOrCreateFolder(drive, slugify(targetName), instancesFolderId);
+		long bootstrapDoneAt = System.nanoTime();
 
 		InstanceManifest previousManifest = downloadManifestIfPresent(drive, instanceFolderId).orElse(InstanceManifest.empty());
+		long manifestReadDoneAt = System.nanoTime();
+
 		Map<String, FileFingerprint> localFingerprints = computeLocalFingerprints(gameDir, previousManifest);
+		long walkHashDoneAt = System.nanoTime();
 
 		Map<String, String> folderIdCache = new HashMap<>();
 		folderIdCache.put("", instanceFolderId);
@@ -122,10 +127,13 @@ public class GoogleDriveInstanceSync {
 			totalBytes += entry.getValue().sizeBytes();
 		}
 		int totalFiles = toUpload.size() + deletedPaths.size();
+		int unchangedFiles = updatedEntries.size();
+		long diffDoneAt = System.nanoTime();
 
 		long bytesTransferred = 0L;
 		int filesTransferred = 0;
 		boolean wasCancelled = false;
+		long folderResolveNanos = 0L;
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
 		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
@@ -139,7 +147,9 @@ public class GoogleDriveInstanceSync {
 			FileFingerprint previous = previousManifest.entries().get(relativePath);
 			try {
 				Path relative = Path.of(relativePath);
+				long folderResolveStartedAt = System.nanoTime();
 				String folderId = resolveFolderId(drive, relative.getParent(), folderIdCache);
+				folderResolveNanos += System.nanoTime() - folderResolveStartedAt;
 				String fileId = GoogleDriveFolders.uploadFile(
 					drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile())
 				);
@@ -155,6 +165,7 @@ public class GoogleDriveInstanceSync {
 			filesTransferred++;
 			listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
 		}
+		long uploadDoneAt = System.nanoTime();
 
 		if (!wasCancelled) {
 			for (String relativePath : deletedPaths) {
@@ -179,9 +190,13 @@ public class GoogleDriveInstanceSync {
 				listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
 			}
 		}
+		long deleteDoneAt = System.nanoTime();
 
 		if (wasCancelled) {
-			Cloudify.LOGGER.info("Instance sync for '{}' was cancelled before completion; manifest not updated", targetName);
+			Cloudify.LOGGER.info(
+				"Instance sync for '{}' was cancelled after {} ms ({} of {} files transferred); manifest not updated",
+				targetName, millis(startedAt, deleteDoneAt), filesTransferred, totalFiles
+			);
 			return;
 		}
 
@@ -198,8 +213,31 @@ public class GoogleDriveInstanceSync {
 
 		GoogleDriveFolders.uploadFile(drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)));
 		GoogleDriveFolders.uploadFile(drive, instanceFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(updatedMetadata)));
+		long commitDoneAt = System.nanoTime();
 
-		Cloudify.LOGGER.info("Synced instance '{}' to Google Drive ({} files changed/added, {} deleted)", targetName, toUpload.size(), deletedPaths.size());
+		long folderResolveMillis = folderResolveNanos / 1_000_000L;
+		Cloudify.LOGGER.info(
+			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} bytes) in {} ms"
+				+ " [bootstrap {} / manifest {} / walk+hash {} / diff {} / folders {} / upload {} / delete {} / commit {}]",
+			targetName,
+			toUpload.size(),
+			deletedPaths.size(),
+			unchangedFiles,
+			totalSizeBytes,
+			millis(startedAt, commitDoneAt),
+			millis(startedAt, bootstrapDoneAt),
+			millis(bootstrapDoneAt, manifestReadDoneAt),
+			millis(manifestReadDoneAt, walkHashDoneAt),
+			millis(walkHashDoneAt, diffDoneAt),
+			folderResolveMillis,
+			millis(diffDoneAt, uploadDoneAt) - folderResolveMillis,
+			millis(uploadDoneAt, deleteDoneAt),
+			millis(deleteDoneAt, commitDoneAt)
+		);
+	}
+
+	private static long millis(long fromNanos, long toNanos) {
+		return (toNanos - fromNanos) / 1_000_000L;
 	}
 
 	public static CompletableFuture<Void> syncInstanceAsync(Path gameDir, String targetName, InstanceMetadata metadata) {
