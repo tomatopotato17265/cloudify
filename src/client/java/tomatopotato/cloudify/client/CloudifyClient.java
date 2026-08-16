@@ -51,6 +51,19 @@ public class CloudifyClient implements ClientModInitializer {
 				Cloudify.LOGGER.error("Failed to auto-sync instance to Google Drive before shutdown", e);
 			}
 		});
+
+		ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+			if (CloudifySettings.load().autoSyncMode() != AutoSyncMode.AFTER_LAUNCH) {
+				return;
+			}
+
+			Path gameDir = FabricLoader.getInstance().getGameDir();
+			InstanceMetadata instanceMetadata = InstanceMetadataFactory.gather(AUTO_SYNC_INSTANCE_TARGET_NAME);
+			GoogleDriveInstanceSync.syncInstanceAsync(gameDir, AUTO_SYNC_INSTANCE_TARGET_NAME, instanceMetadata).exceptionally(e -> {
+				Cloudify.LOGGER.error("Failed to auto-sync instance to Google Drive after launch", e);
+				return null;
+			});
+		});
 	}
 
 	private static WorldMetadata gatherMetadata(MinecraftServer server) {
