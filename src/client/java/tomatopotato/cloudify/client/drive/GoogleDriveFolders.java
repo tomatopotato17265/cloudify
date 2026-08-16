@@ -1,6 +1,7 @@
 package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.googleapis.media.MediaHttpUploader;
 import com.google.api.client.http.AbstractInputStreamContent;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
@@ -18,7 +19,7 @@ public class GoogleDriveFolders {
 	public static final String INSTANCES_FOLDER_NAME = "Instances";
 	// Reserved for future server backups; not created or used yet.
 	public static final String SERVERS_FOLDER_NAME = "Servers";
-
+	public static final long MULTIPART_MAX_BYTES = 5L * 1024 * 1024;
 	private static final AtomicInteger REQUEST_COUNT = new AtomicInteger();
 
 	public static void countRequest() {
@@ -74,16 +75,31 @@ public class GoogleDriveFolders {
 		List<File> matches = result.getFiles();
 
 		if (matches != null && !matches.isEmpty()) {
-			String fileId = matches.get(0).getId();
-			countRequest();
-			drive.files().update(fileId, new File(), mediaContent).execute();
-			return fileId;
+			return updateFile(drive, matches.get(0).getId(), mediaContent);
 		} else {
-			File metadata = new File().setName(fileName).setParents(List.of(folderId));
-			countRequest();
-			File created = drive.files().create(metadata, mediaContent).setFields("id").execute();
-			return created.getId();
+			return createFile(drive, folderId, fileName, mediaContent);
 		}
+	}
+
+	private static String createFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent) throws IOException {
+		File metadata = new File().setName(fileName).setParents(List.of(folderId));
+		countRequest();
+		Drive.Files.Create request = drive.files().create(metadata, mediaContent).setFields("id");
+		configureUpload(request.getMediaHttpUploader(), mediaContent.getLength());
+		File created = request.execute();
+		return created.getId();
+	}
+
+	private static String updateFile(Drive drive, String fileId, AbstractInputStreamContent mediaContent) throws IOException {
+		countRequest();
+		Drive.Files.Update request = drive.files().update(fileId, new File(), mediaContent);
+		configureUpload(request.getMediaHttpUploader(), mediaContent.getLength());
+		request.execute();
+		return fileId;
+	}
+
+	private static void configureUpload(MediaHttpUploader uploader, long length) {
+		uploader.setDirectUploadEnabled(length >= 0 && length <= MULTIPART_MAX_BYTES);
 	}
 
 	public static void trashRecursively(Drive drive, String fileId) throws IOException {
