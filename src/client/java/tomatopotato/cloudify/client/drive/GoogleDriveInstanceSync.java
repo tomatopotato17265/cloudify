@@ -86,6 +86,7 @@ public class GoogleDriveInstanceSync {
 		}
 
 		long startedAt = System.nanoTime();
+		GoogleDriveFolders.resetRequestCount();
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
 
@@ -179,6 +180,7 @@ public class GoogleDriveInstanceSync {
 					Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
 				} else {
 					try {
+						GoogleDriveFolders.countRequest();
 						drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
 					} catch (IOException e) {
 						Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
@@ -194,8 +196,8 @@ public class GoogleDriveInstanceSync {
 
 		if (wasCancelled) {
 			Cloudify.LOGGER.info(
-				"Instance sync for '{}' was cancelled after {} ms ({} of {} files transferred); manifest not updated",
-				targetName, millis(startedAt, deleteDoneAt), filesTransferred, totalFiles
+				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred); manifest not updated",
+				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred, totalFiles
 			);
 			return;
 		}
@@ -217,13 +219,14 @@ public class GoogleDriveInstanceSync {
 
 		long folderResolveMillis = folderResolveNanos / 1_000_000L;
 		Cloudify.LOGGER.info(
-			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} bytes) in {} ms"
+			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} bytes, {} requests) in {} ms"
 				+ " [bootstrap {} / manifest {} / walk+hash {} / diff {} / folders {} / upload {} / delete {} / commit {}]",
 			targetName,
 			toUpload.size(),
 			deletedPaths.size(),
 			unchangedFiles,
 			totalSizeBytes,
+			GoogleDriveFolders.getRequestCount(),
 			millis(startedAt, commitDoneAt),
 			millis(startedAt, bootstrapDoneAt),
 			millis(bootstrapDoneAt, manifestReadDoneAt),
@@ -454,12 +457,14 @@ public class GoogleDriveInstanceSync {
 
 	private static Optional<InstanceManifest> downloadManifestIfPresent(Drive drive, String instanceFolderId) throws IOException {
 		String query = "'" + instanceFolderId + "' in parents and name = '" + MANIFEST_FILE_NAME + "' and trashed = false";
+		GoogleDriveFolders.countRequest();
 		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
 		List<File> matches = result.getFiles();
 		if (matches == null || matches.isEmpty()) {
 			return Optional.empty();
 		}
 
+		GoogleDriveFolders.countRequest();
 		try (InputStream in = drive.files().get(matches.get(0).getId()).executeMediaAsInputStream()) {
 			return Optional.of(deserializeManifest(in));
 		}
