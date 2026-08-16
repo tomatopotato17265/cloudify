@@ -11,8 +11,14 @@ import tomatopotato.cloudify.client.drive.GoogleDriveAuth;
 public class CloudifySettings {
 	private static final Path SETTINGS_FILE = GoogleDriveAuth.TOKENS_DIRECTORY.resolve("settings.json");
 
-	public record CloudifySettingsData(boolean autoSyncInstance) {
-		public static final CloudifySettingsData DEFAULT = new CloudifySettingsData(false);
+	public enum AutoSyncMode {
+		OFF,
+		AFTER_LAUNCH,
+		BEFORE_SHUTDOWN
+	}
+
+	public record CloudifySettingsData(AutoSyncMode autoSyncMode) {
+		public static final CloudifySettingsData DEFAULT = new CloudifySettingsData(AutoSyncMode.BEFORE_SHUTDOWN);
 	}
 
 	public static CloudifySettingsData load() {
@@ -22,9 +28,12 @@ public class CloudifySettings {
 
 		try (InputStream in = Files.newInputStream(SETTINGS_FILE)) {
 			GenericJson json = GoogleDriveAuth.JSON_FACTORY.fromInputStream(in, GenericJson.class);
-			Boolean autoSyncInstance = (Boolean) json.get("autoSyncInstance");
-			return new CloudifySettingsData(autoSyncInstance != null && autoSyncInstance);
-		} catch (IOException e) {
+			String autoSyncMode = (String) json.get("autoSyncMode");
+			if (autoSyncMode == null) {
+				return CloudifySettingsData.DEFAULT;
+			}
+			return new CloudifySettingsData(AutoSyncMode.valueOf(autoSyncMode));
+		} catch (IOException | IllegalArgumentException e) {
 			Cloudify.LOGGER.warn("Failed to read Cloudify settings, using defaults", e);
 			return CloudifySettingsData.DEFAULT;
 		}
@@ -34,7 +43,7 @@ public class CloudifySettings {
 		try {
 			Files.createDirectories(SETTINGS_FILE.getParent());
 			GenericJson json = new GenericJson();
-			json.set("autoSyncInstance", data.autoSyncInstance());
+			json.set("autoSyncMode", data.autoSyncMode().name());
 			Files.write(SETTINGS_FILE, GoogleDriveAuth.JSON_FACTORY.toByteArray(json));
 		} catch (IOException e) {
 			Cloudify.LOGGER.warn("Failed to save Cloudify settings", e);
