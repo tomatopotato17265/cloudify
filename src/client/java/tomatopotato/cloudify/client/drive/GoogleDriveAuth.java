@@ -2,7 +2,7 @@ package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.http.HttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.http.apache.v2.ApacheHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
@@ -18,7 +18,7 @@ import tomatopotato.cloudify.Cloudify;
 public class GoogleDriveAuth {
 	private static final String WIRE_LOG_PROPERTY = "cloudify.wireLog";
 
-	public static final NetHttpTransport HTTP_TRANSPORT = new NetHttpTransport();
+	public static final HttpTransport HTTP_TRANSPORT = new ApacheHttpTransport();
 	public static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
 	public static final Path TOKENS_DIRECTORY = FabricLoader.getInstance().getConfigDir().resolve("cloudify");
 	public static final GoogleAuthorizationCodeFlow FLOW;
@@ -37,6 +37,14 @@ public class GoogleDriveAuth {
 				.build();
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
+		}
+	}
+
+	public static void shutdownTransport() {
+		try {
+			HTTP_TRANSPORT.shutdown();
+		} catch (IOException e) {
+			Cloudify.LOGGER.warn("Failed to shut down Google Drive HTTP transport", e);
 		}
 	}
 
