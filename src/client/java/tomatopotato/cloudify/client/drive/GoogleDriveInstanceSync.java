@@ -18,6 +18,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -27,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.util.Util;
@@ -57,9 +59,9 @@ public class GoogleDriveInstanceSync {
 	public record FileFingerprint(String relativePath, long sizeBytes, long mtimeMillis, String contentHash, @Nullable String driveFileId) {
 	}
 
-	public record InstanceManifest(Map<String, FileFingerprint> entries) {
+	public record InstanceManifest(Map<String, FileFingerprint> entries, Map<String, String> folderIds) {
 		public static InstanceManifest empty() {
-			return new InstanceManifest(new LinkedHashMap<>());
+			return new InstanceManifest(new LinkedHashMap<>(), new LinkedHashMap<>());
 		}
 	}
 
@@ -201,7 +203,7 @@ public class GoogleDriveInstanceSync {
 			return;
 		}
 
-		InstanceManifest updatedManifest = new InstanceManifest(updatedEntries);
+		InstanceManifest updatedManifest = new InstanceManifest(updatedEntries, folderIdCache);
 		InstanceMetadata updatedMetadata = new InstanceMetadata(
 			metadata.displayName(),
 			metadata.minecraftVersion(),
@@ -595,8 +597,11 @@ public class GoogleDriveInstanceSync {
 	static byte[] serializeManifest(InstanceManifest manifest) throws IOException {
 		GenericJson json = new GenericJson();
 
+		List<String> sortedPaths = new ArrayList<>(manifest.entries().keySet());
+		Collections.sort(sortedPaths);
 		List<GenericJson> entriesJson = new ArrayList<>();
-		for (FileFingerprint fingerprint : manifest.entries().values()) {
+		for (String relativePath : sortedPaths) {
+			FileFingerprint fingerprint = manifest.entries().get(relativePath);
 			GenericJson entryJson = new GenericJson();
 			entryJson.set("relativePath", fingerprint.relativePath());
 			entryJson.set("sizeBytes", fingerprint.sizeBytes());
@@ -606,6 +611,8 @@ public class GoogleDriveInstanceSync {
 			entriesJson.add(entryJson);
 		}
 		json.set("entries", entriesJson);
+		json.set("folders", new TreeMap<>(manifest.folderIds()));
+
 		return GoogleDriveAuth.JSON_FACTORY.toByteArray(json);
 	}
 
@@ -637,6 +644,17 @@ public class GoogleDriveInstanceSync {
 				}
 			}
 		}
-		return new InstanceManifest(entries);
+
+		Map<String, String> folderIds = new LinkedHashMap<>();
+		Object foldersRaw = json.get("folders");
+		if (foldersRaw instanceof Map<?, ?> map) {
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				if (entry.getKey() instanceof String path && entry.getValue() instanceof String driveFileId) {
+					folderIds.put(path, driveFileId);
+				}
+			}
+		}
+
+		return new InstanceManifest(entries, folderIds);
 	}
 }
