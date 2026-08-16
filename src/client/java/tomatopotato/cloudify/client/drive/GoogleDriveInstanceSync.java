@@ -180,7 +180,6 @@ public class GoogleDriveInstanceSync {
 					Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
 				} else {
 					try {
-						GoogleDriveFolders.countRequest();
 						drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
 					} catch (IOException e) {
 						Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
@@ -457,14 +456,12 @@ public class GoogleDriveInstanceSync {
 
 	private static Optional<InstanceManifest> downloadManifestIfPresent(Drive drive, String instanceFolderId) throws IOException {
 		String query = "'" + instanceFolderId + "' in parents and name = '" + MANIFEST_FILE_NAME + "' and trashed = false";
-		GoogleDriveFolders.countRequest();
 		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
 		List<File> matches = result.getFiles();
 		if (matches == null || matches.isEmpty()) {
 			return Optional.empty();
 		}
 
-		GoogleDriveFolders.countRequest();
 		try (InputStream in = drive.files().get(matches.get(0).getId()).executeMediaAsInputStream()) {
 			return Optional.of(deserializeManifest(in));
 		}
