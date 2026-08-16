@@ -31,6 +31,7 @@ public class CloudSyncingScreen extends Screen {
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 	private final Screen lastScreen;
 	private GoogleDriveLoopbackServer loginServer;
+	private URI loginAuthorizationUrl;
 
 	public CloudSyncingScreen(Screen lastScreen) {
 		super(Component.translatable("options.cloud_syncing.title"));
@@ -109,28 +110,32 @@ public class CloudSyncingScreen extends Screen {
 	}
 
 	private FocusableTextWidget createLoginWidget() {
-		try {
-			this.loginServer = GoogleDriveLoopbackServer.start();
-		} catch (IOException e) {
-			throw new UncheckedIOException(e);
-		}
-		URI authorizationUrl = GoogleDriveLogin.buildAuthorizationUrl(this.loginServer);
-		this.loginServer.authorizationCode().whenComplete((code, error) -> {
-			if (error != null) {
-				Cloudify.LOGGER.error("Google Drive login failed", error);
-				return;
-			}
+		if (this.loginServer == null) {
+			GoogleDriveLoopbackServer server;
 			try {
-				GoogleDriveLogin.exchangeCode(this.loginServer, code);
-				Cloudify.LOGGER.info("Successfully logged in with Google Drive");
-				Minecraft.getInstance().execute(() -> this.minecraft.gui.setScreen(new CloudSyncingScreen(this.lastScreen)));
+				server = GoogleDriveLoopbackServer.start();
 			} catch (IOException e) {
-				Cloudify.LOGGER.error("Failed to exchange Google Drive authorization code for tokens", e);
+				throw new UncheckedIOException(e);
 			}
-		});
+			this.loginServer = server;
+			this.loginAuthorizationUrl = GoogleDriveLogin.buildAuthorizationUrl(server);
+			server.authorizationCode().whenComplete((code, error) -> {
+				if (error != null) {
+					Cloudify.LOGGER.error("Google Drive login failed", error);
+					return;
+				}
+				try {
+					GoogleDriveLogin.exchangeCode(server, code);
+					Cloudify.LOGGER.info("Successfully logged in with Google Drive");
+					Minecraft.getInstance().execute(() -> this.minecraft.gui.setScreen(new CloudSyncingScreen(this.lastScreen)));
+				} catch (IOException e) {
+					Cloudify.LOGGER.error("Failed to exchange Google Drive authorization code for tokens", e);
+				}
+			});
+		}
 
 		Component googleDriveLoginLabel = Component.translatable("options.cloud_syncing.google_drive_login")
-			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.WHITE).withClickEvent(new ClickEvent.OpenUrl(authorizationUrl)));
+			.withStyle(style -> style.withUnderlined(true).withColor(ChatFormatting.WHITE).withClickEvent(new ClickEvent.OpenUrl(this.loginAuthorizationUrl)));
 		FocusableTextWidget googleDriveLoginWidget = FocusableTextWidget.builder(googleDriveLoginLabel, this.font)
 			.alwaysShowBorder(false)
 			.backgroundFill(FocusableTextWidget.BackgroundFill.NEVER)
