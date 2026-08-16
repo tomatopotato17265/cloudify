@@ -21,17 +21,14 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.client.CloudifySettings;
+import tomatopotato.cloudify.client.CloudifySettings.AutoSyncMode;
+import tomatopotato.cloudify.client.CloudifySettings.CloudifySettingsData;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
 import tomatopotato.cloudify.client.drive.GoogleDriveLoopbackServer;
 
 public class CloudSyncingScreen extends Screen {
-	private enum AutoSyncModeStub {
-		OFF,
-		AFTER_LAUNCH,
-		BEFORE_SHUTDOWN
-	}
-
-	private static Component autoSyncModeLabel(AutoSyncModeStub mode) {
+	private static Component autoSyncModeLabel(AutoSyncMode mode) {
 		return switch (mode) {
 			case OFF -> Component.translatable("options.cloud_syncing.off");
 			case AFTER_LAUNCH -> Component.translatable("options.cloud_syncing.after_launch");
@@ -66,14 +63,15 @@ public class CloudSyncingScreen extends Screen {
 		}
 
 		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
+		AutoSyncMode autoSyncMode = CloudifySettings.load().autoSyncMode();
 		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
 		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
 		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
 		autoSyncRow.addChild(
-			CycleButton.builder(CloudSyncingScreen::autoSyncModeLabel, AutoSyncModeStub.BEFORE_SHUTDOWN)
-				.withValues(AutoSyncModeStub.values())
+			CycleButton.builder(CloudSyncingScreen::autoSyncModeLabel, autoSyncMode)
+				.withValues(AutoSyncMode.values())
 				.displayOnlyValue()
-				.create(autoSyncLabel, (button, value) -> {})
+				.create(autoSyncLabel, (button, value) -> CloudifySettings.save(new CloudifySettingsData(value)))
 		);
 
 		content.addChild(
