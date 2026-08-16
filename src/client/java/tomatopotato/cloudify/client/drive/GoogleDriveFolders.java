@@ -1,6 +1,7 @@
 package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.googleapis.media.MediaHttpUploader;
 import com.google.api.client.http.AbstractInputStreamContent;
 import com.google.api.services.drive.Drive;
@@ -79,6 +80,21 @@ public class GoogleDriveFolders {
 		} else {
 			return createFile(drive, folderId, fileName, mediaContent);
 		}
+	}
+
+	public static String uploadFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent, @Nullable String knownFileId) throws IOException {
+		if (knownFileId == null) {
+			return createFile(drive, folderId, fileName, mediaContent);
+		}
+
+		try {
+			return updateFile(drive, knownFileId, mediaContent);
+		} catch (GoogleJsonResponseException e) {
+			if (e.getStatusCode() != 404) {
+				throw e;
+			}
+		}
+		return createFile(drive, folderId, fileName, mediaContent);
 	}
 
 	private static String createFile(Drive drive, String folderId, String fileName, AbstractInputStreamContent mediaContent) throws IOException {

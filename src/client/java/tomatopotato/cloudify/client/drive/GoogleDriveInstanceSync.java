@@ -152,7 +152,7 @@ public class GoogleDriveInstanceSync {
 				String folderId = resolveFolderId(drive, relative.getParent(), folderIdCache);
 				folderResolveNanos += System.nanoTime() - folderResolveStartedAt;
 				String fileId = GoogleDriveFolders.uploadFile(
-					drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile())
+					drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile()), local.driveFileId()
 				);
 				updatedEntries.put(relativePath, new FileFingerprint(relativePath, local.sizeBytes(), local.mtimeMillis(), local.contentHash(), fileId));
 			} catch (IOException e) {
