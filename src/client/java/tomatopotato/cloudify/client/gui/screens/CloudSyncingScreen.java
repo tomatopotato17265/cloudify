@@ -21,11 +21,24 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import tomatopotato.cloudify.Cloudify;
-import tomatopotato.cloudify.client.CloudifySettings;
 import tomatopotato.cloudify.client.drive.GoogleDriveLogin;
 import tomatopotato.cloudify.client.drive.GoogleDriveLoopbackServer;
 
 public class CloudSyncingScreen extends Screen {
+	private enum AutoSyncModeStub {
+		OFF,
+		AFTER_LAUNCH,
+		BEFORE_SHUTDOWN
+	}
+
+	private static Component autoSyncModeLabel(AutoSyncModeStub mode) {
+		return switch (mode) {
+			case OFF -> Component.translatable("options.cloud_syncing.off");
+			case AFTER_LAUNCH -> Component.translatable("options.cloud_syncing.after_launch");
+			case BEFORE_SHUTDOWN -> Component.translatable("options.cloud_syncing.before_shutdown");
+		};
+	}
+
 	private static final Identifier MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/menu_list_background.png");
 	private static final Identifier INWORLD_MENU_LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
@@ -53,14 +66,14 @@ public class CloudSyncingScreen extends Screen {
 		}
 
 		Component autoSyncLabel = Component.translatable("options.cloud_syncing.auto_sync");
-		boolean autoSyncInstance = CloudifySettings.load().autoSyncInstance();
 		LinearLayout autoSyncRow = content.addChild(LinearLayout.horizontal()).spacing(8);
 		autoSyncRow.defaultCellSetting().alignVerticallyMiddle();
 		autoSyncRow.addChild(new StringWidget(autoSyncLabel, this.font));
 		autoSyncRow.addChild(
-			CycleButton.booleanBuilder(CommonComponents.OPTION_ON, CommonComponents.OPTION_OFF, autoSyncInstance)
+			CycleButton.builder(CloudSyncingScreen::autoSyncModeLabel, AutoSyncModeStub.BEFORE_SHUTDOWN)
+				.withValues(AutoSyncModeStub.values())
 				.displayOnlyValue()
-				.create(autoSyncLabel, (button, value) -> CloudifySettings.save(new CloudifySettings.CloudifySettingsData(value)))
+				.create(autoSyncLabel, (button, value) -> {})
 		);
 
 		content.addChild(
