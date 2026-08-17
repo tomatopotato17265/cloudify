@@ -1,6 +1,6 @@
 # Cloudify
 
-Cloudify is a Minecraft mod that lets players back up their worlds, ~~instances, and servers~~ to their Google Drive.
+Cloudify is a Minecraft mod that lets players back up their worlds, instances, ~~and servers~~ to their Google Drive.
 
 ## Download
 
@@ -10,7 +10,7 @@ Cloudify is a Minecraft mod that lets players back up their worlds, ~~instances,
 
 - Log in and out with Google Drive using OAuth
 - Upload singleplayer worlds and instances to a dedicated folder in Google Drive
-- Import worlds ~~and instances~~ from Google Drive, allowing you to seamlessly transfer data across machines or recover any lost data
+- Import worlds and instances from Google Drive, allowing you to seamlessly transfer data across machines or recover any lost data
 - Manage data stored in Google Drive without leaving the game
 - ~~Server admins can also back up their servers to protect against unforeseen accidents~~
 
