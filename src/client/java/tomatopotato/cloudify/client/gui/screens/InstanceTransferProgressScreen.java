@@ -26,6 +26,7 @@ public class InstanceTransferProgressScreen extends Screen {
 
 	private StringWidget progressWidget;
 	private boolean started;
+	private int lastFilesTransferred = -1;
 
 	public InstanceTransferProgressScreen(Component title, Screen lastScreen, TransferOperation operation, Runnable onSuccess, Consumer<Throwable> onFailure) {
 		super(title);
@@ -72,9 +73,10 @@ public class InstanceTransferProgressScreen extends Screen {
 
 	private void onProgress(long bytesTransferred, long totalBytes, int filesTransferred, int totalFiles, String currentFileName) {
 		this.minecraft.execute(() -> {
-			if (this.progressWidget == null) {
+			if (this.progressWidget == null || filesTransferred < this.lastFilesTransferred) {
 				return;
 			}
+			this.lastFilesTransferred = filesTransferred;
 
 			Component message = totalFiles > 0
 				? Component.translatable(

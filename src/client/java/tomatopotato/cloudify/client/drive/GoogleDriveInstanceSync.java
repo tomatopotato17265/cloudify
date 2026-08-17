@@ -33,6 +33,8 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
@@ -119,7 +121,7 @@ public class GoogleDriveInstanceSync {
 		Map<String, String> folderIdCache = new ConcurrentHashMap<>(previousManifest.folderIds());
 		folderIdCache.put("", instanceFolderId);
 
-		Map<String, FileFingerprint> updatedEntries = new LinkedHashMap<>();
+		Map<String, FileFingerprint> updatedEntries = new ConcurrentHashMap<>();
 		List<Map.Entry<String, FileFingerprint>> toUpload = new ArrayList<>();
 		long totalSizeBytes = 0L;
 
@@ -153,14 +155,12 @@ public class GoogleDriveInstanceSync {
 		preResolveFolders(drive, pathsToUpload, folderIdCache);
 		long folderPrePassDoneAt = System.nanoTime();
 
-		long bytesTransferred = 0L;
-		int filesTransferred = 0;
-		boolean wasCancelled = false;
+		AtomicLong bytesTransferred = new AtomicLong();
+		AtomicInteger filesTransferred = new AtomicInteger();
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
 		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
 			if (cancelled.get()) {
-				wasCancelled = true;
 				break;
 			}
 
@@ -182,16 +182,15 @@ public class GoogleDriveInstanceSync {
 				}
 			}
 
-			bytesTransferred += local.sizeBytes();
-			filesTransferred++;
-			listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
+			long newBytesTransferred = bytesTransferred.addAndGet(local.sizeBytes());
+			int newFilesTransferred = filesTransferred.incrementAndGet();
+			listener.onProgress(newBytesTransferred, totalBytes, newFilesTransferred, totalFiles, relativePath);
 		}
 		long uploadDoneAt = System.nanoTime();
 
-		if (!wasCancelled) {
+		if (!cancelled.get()) {
 			for (String relativePath : deletedPaths) {
 				if (cancelled.get()) {
-					wasCancelled = true;
 					break;
 				}
 
@@ -207,16 +206,16 @@ public class GoogleDriveInstanceSync {
 					}
 				}
 
-				filesTransferred++;
-				listener.onProgress(bytesTransferred, totalBytes, filesTransferred, totalFiles, relativePath);
+				int newFilesTransferred = filesTransferred.incrementAndGet();
+				listener.onProgress(bytesTransferred.get(), totalBytes, newFilesTransferred, totalFiles, relativePath);
 			}
 		}
 		long deleteDoneAt = System.nanoTime();
 
-		if (wasCancelled) {
+		if (cancelled.get()) {
 			Cloudify.LOGGER.info(
 				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred); manifest not updated",
-				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred, totalFiles
+				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred.get(), totalFiles
 			);
 			return;
 		}
