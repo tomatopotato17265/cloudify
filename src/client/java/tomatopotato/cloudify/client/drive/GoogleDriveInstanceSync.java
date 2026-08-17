@@ -1,6 +1,7 @@
 package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.ByteArrayContent;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.json.GenericJson;
@@ -92,12 +93,23 @@ public class GoogleDriveInstanceSync {
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
 
-		String cloudifyFolderId = GoogleDriveFolders.findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
-		String instancesFolderId = GoogleDriveFolders.findOrCreateFolder(drive, INSTANCES_FOLDER_NAME, cloudifyFolderId);
-		String instanceFolderId = GoogleDriveFolders.findOrCreateFolder(drive, slugify(targetName), instancesFolderId);
+		String slug = slugify(targetName);
+		DriveIdCache.Data idCache = DriveIdCache.load();
+		DriveIdCache.InstanceIds cachedIds = idCache.instances().getOrDefault(slug, DriveIdCache.InstanceIds.EMPTY);
+
+		String cloudifyFolderId = idCache.cloudifyFolderId();
+		String instancesFolderId = idCache.instancesFolderId();
+		String instanceFolderId = cachedIds.folderId();
+		boolean cacheUsable = cloudifyFolderId != null && instancesFolderId != null && instanceFolderId != null && isFolderUsable(drive, instanceFolderId);
+		if (!cacheUsable) {
+			cloudifyFolderId = GoogleDriveFolders.findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
+			instancesFolderId = GoogleDriveFolders.findOrCreateFolder(drive, INSTANCES_FOLDER_NAME, cloudifyFolderId);
+			instanceFolderId = GoogleDriveFolders.findOrCreateFolder(drive, slug, instancesFolderId);
+			cachedIds = DriveIdCache.InstanceIds.EMPTY;
+		}
 		long bootstrapDoneAt = System.nanoTime();
 
-		InstanceManifest previousManifest = downloadManifestIfPresent(drive, instanceFolderId).orElse(InstanceManifest.empty());
+		InstanceManifest previousManifest = downloadManifestIfPresent(drive, instanceFolderId, cachedIds.manifestFileId()).orElse(InstanceManifest.empty());
 		long manifestReadDoneAt = System.nanoTime();
 
 		Map<String, FileFingerprint> localFingerprints = computeLocalFingerprints(gameDir, previousManifest);
@@ -214,9 +226,17 @@ public class GoogleDriveInstanceSync {
 			updatedEntries.size()
 		);
 
-		GoogleDriveFolders.uploadFile(drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)));
-		GoogleDriveFolders.uploadFile(drive, instanceFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(updatedMetadata)));
+		String manifestFileId = GoogleDriveFolders.uploadFile(
+			drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)), cachedIds.manifestFileId()
+		);
+		String metadataFileId = GoogleDriveFolders.uploadFile(
+			drive, instanceFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(updatedMetadata)), cachedIds.metadataFileId()
+		);
 		long commitDoneAt = System.nanoTime();
+
+		Map<String, DriveIdCache.InstanceIds> updatedInstances = new LinkedHashMap<>(idCache.instances());
+		updatedInstances.put(slug, new DriveIdCache.InstanceIds(instanceFolderId, manifestFileId, metadataFileId));
+		DriveIdCache.save(new DriveIdCache.Data(cloudifyFolderId, instancesFolderId, updatedInstances));
 
 		long folderResolveMillis = folderResolveNanos / 1_000_000L;
 		Cloudify.LOGGER.info(
@@ -456,7 +476,29 @@ public class GoogleDriveInstanceSync {
 		return folderId;
 	}
 
-	private static Optional<InstanceManifest> downloadManifestIfPresent(Drive drive, String instanceFolderId) throws IOException {
+	private static boolean isFolderUsable(Drive drive, String folderId) throws IOException {
+		try {
+			File file = drive.files().get(folderId).setFields("id,trashed").execute();
+			return !Boolean.TRUE.equals(file.getTrashed());
+		} catch (GoogleJsonResponseException e) {
+			if (e.getStatusCode() == 404) {
+				return false;
+			}
+			throw e;
+		}
+	}
+
+	private static Optional<InstanceManifest> downloadManifestIfPresent(Drive drive, String instanceFolderId, @Nullable String knownManifestFileId) throws IOException {
+		if (knownManifestFileId != null) {
+			try (InputStream in = drive.files().get(knownManifestFileId).executeMediaAsInputStream()) {
+				return Optional.of(deserializeManifest(in));
+			} catch (GoogleJsonResponseException e) {
+				if (e.getStatusCode() != 404) {
+					throw e;
+				}
+			}
+		}
+
 		String query = "'" + instanceFolderId + "' in parents and name = '" + MANIFEST_FILE_NAME + "' and trashed = false";
 		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
 		List<File> matches = result.getFiles();
