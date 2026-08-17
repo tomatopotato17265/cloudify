@@ -20,7 +20,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -30,7 +29,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
@@ -115,7 +116,7 @@ public class GoogleDriveInstanceSync {
 		Map<String, FileFingerprint> localFingerprints = computeLocalFingerprints(gameDir, previousManifest);
 		long walkHashDoneAt = System.nanoTime();
 
-		Map<String, String> folderIdCache = new HashMap<>();
+		Map<String, String> folderIdCache = new ConcurrentHashMap<>(previousManifest.folderIds());
 		folderIdCache.put("", instanceFolderId);
 
 		Map<String, FileFingerprint> updatedEntries = new LinkedHashMap<>();
@@ -145,10 +146,16 @@ public class GoogleDriveInstanceSync {
 		int unchangedFiles = updatedEntries.size();
 		long diffDoneAt = System.nanoTime();
 
+		List<String> pathsToUpload = new ArrayList<>();
+		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
+			pathsToUpload.add(entry.getKey());
+		}
+		preResolveFolders(drive, pathsToUpload, folderIdCache);
+		long folderPrePassDoneAt = System.nanoTime();
+
 		long bytesTransferred = 0L;
 		int filesTransferred = 0;
 		boolean wasCancelled = false;
-		long folderResolveNanos = 0L;
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
 		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
@@ -162,9 +169,8 @@ public class GoogleDriveInstanceSync {
 			FileFingerprint previous = previousManifest.entries().get(relativePath);
 			try {
 				Path relative = Path.of(relativePath);
-				long folderResolveStartedAt = System.nanoTime();
-				String folderId = resolveFolderId(drive, relative.getParent(), folderIdCache);
-				folderResolveNanos += System.nanoTime() - folderResolveStartedAt;
+				Path parent = relative.getParent();
+				String folderId = parent == null ? folderIdCache.get("") : folderIdCache.get(toKey(parent));
 				String fileId = GoogleDriveFolders.uploadFile(
 					drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile()), local.driveFileId()
 				);
@@ -238,7 +244,6 @@ public class GoogleDriveInstanceSync {
 		updatedInstances.put(slug, new DriveIdCache.InstanceIds(instanceFolderId, manifestFileId, metadataFileId));
 		DriveIdCache.save(new DriveIdCache.Data(cloudifyFolderId, instancesFolderId, updatedInstances));
 
-		long folderResolveMillis = folderResolveNanos / 1_000_000L;
 		Cloudify.LOGGER.info(
 			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} bytes, {} requests) in {} ms"
 				+ " [bootstrap {} / manifest {} / walk+hash {} / diff {} / folders {} / upload {} / delete {} / commit {}]",
@@ -253,8 +258,8 @@ public class GoogleDriveInstanceSync {
 			millis(bootstrapDoneAt, manifestReadDoneAt),
 			millis(manifestReadDoneAt, walkHashDoneAt),
 			millis(walkHashDoneAt, diffDoneAt),
-			folderResolveMillis,
-			millis(diffDoneAt, uploadDoneAt) - folderResolveMillis,
+			millis(diffDoneAt, folderPrePassDoneAt),
+			millis(folderPrePassDoneAt, uploadDoneAt),
 			millis(uploadDoneAt, deleteDoneAt),
 			millis(deleteDoneAt, commitDoneAt)
 		);
@@ -459,21 +464,31 @@ public class GoogleDriveInstanceSync {
 		}
 	}
 
-	private static String resolveFolderId(Drive drive, @Nullable Path relativeDir, Map<String, String> folderIdCache) throws IOException {
-		if (relativeDir == null) {
-			return folderIdCache.get("");
+	private static void preResolveFolders(Drive drive, List<String> relativeFilePaths, Map<String, String> folderIdCache) throws IOException {
+		Set<String> ancestorDirs = new TreeSet<>();
+		for (String relativePath : relativeFilePaths) {
+			Path parent = Path.of(relativePath).getParent();
+			while (parent != null) {
+				ancestorDirs.add(toKey(parent));
+				parent = parent.getParent();
+			}
 		}
 
-		String key = relativeDir.toString().replace(java.io.File.separatorChar, '/');
-		String cached = folderIdCache.get(key);
-		if (cached != null) {
-			return cached;
-		}
+		for (String dirPath : ancestorDirs) {
+			if (folderIdCache.containsKey(dirPath)) {
+				continue;
+			}
 
-		String parentId = resolveFolderId(drive, relativeDir.getParent(), folderIdCache);
-		String folderId = GoogleDriveFolders.findOrCreateFolder(drive, relativeDir.getFileName().toString(), parentId);
-		folderIdCache.put(key, folderId);
-		return folderId;
+			Path dir = Path.of(dirPath);
+			Path parentDir = dir.getParent();
+			String parentId = parentDir == null ? folderIdCache.get("") : folderIdCache.get(toKey(parentDir));
+			String folderId = GoogleDriveFolders.findOrCreateFolder(drive, dir.getFileName().toString(), parentId);
+			folderIdCache.put(dirPath, folderId);
+		}
+	}
+
+	private static String toKey(Path relativeDir) {
+		return relativeDir.toString().replace(java.io.File.separatorChar, '/');
 	}
 
 	private static boolean isFolderUsable(Drive drive, String folderId) throws IOException {
