@@ -5,6 +5,7 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.googleapis.media.MediaHttpUploader;
 import com.google.api.client.http.AbstractInputStreamContent;
 import com.google.api.client.http.HttpBackOffIOExceptionHandler;
+import com.google.api.client.http.HttpBackOffUnsuccessfulResponseHandler;
 import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.drive.Drive;
@@ -41,6 +42,16 @@ public class GoogleDriveFolders {
 			request.setReadTimeout(60_000);
 			request.setWriteTimeout(60_000);
 			request.setIOExceptionHandler(new HttpBackOffIOExceptionHandler(new ExponentialBackOff()));
+
+			HttpBackOffUnsuccessfulResponseHandler backoffHandler = new HttpBackOffUnsuccessfulResponseHandler(new ExponentialBackOff());
+			backoffHandler.setBackOffRequired(response -> {
+				int statusCode = response.getStatusCode();
+				return statusCode == 403 || statusCode == 429 || statusCode / 100 == 5;
+			});
+			request.setUnsuccessfulResponseHandler(
+				(req, response, supportsRetry) -> credential.handleResponse(req, response, supportsRetry) || backoffHandler.handleResponse(req, response, supportsRetry)
+			);
+
 			REQUEST_COUNT.incrementAndGet();
 		};
 		return new Drive.Builder(GoogleDriveAuth.HTTP_TRANSPORT, GoogleDriveAuth.JSON_FACTORY, initializer).setApplicationName("Cloudify").build();

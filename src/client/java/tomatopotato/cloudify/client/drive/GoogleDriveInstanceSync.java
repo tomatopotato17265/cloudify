@@ -163,6 +163,7 @@ public class GoogleDriveInstanceSync {
 
 		AtomicLong bytesTransferred = new AtomicLong();
 		AtomicInteger filesTransferred = new AtomicInteger();
+		AtomicInteger skippedCount = new AtomicInteger();
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
 		AtomicInteger uploadThreadCounter = new AtomicInteger();
@@ -196,6 +197,7 @@ public class GoogleDriveInstanceSync {
 						updatedEntries.put(relativePath, new FileFingerprint(relativePath, local.sizeBytes(), local.mtimeMillis(), local.contentHash(), fileId));
 					} catch (IOException e) {
 						Cloudify.LOGGER.warn("Failed to sync '{}' to Google Drive, skipping (it may have been a transient file rewritten by the game)", relativePath, e);
+						skippedCount.incrementAndGet();
 						if (previous != null) {
 							updatedEntries.put(relativePath, previous);
 						}
@@ -223,11 +225,13 @@ public class GoogleDriveInstanceSync {
 				FileFingerprint gone = previousManifest.entries().get(relativePath);
 				if (gone.driveFileId() == null) {
 					Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
+					skippedCount.incrementAndGet();
 				} else {
 					try {
 						drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
 					} catch (IOException e) {
 						Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
+						skippedCount.incrementAndGet();
 						updatedEntries.put(relativePath, gone);
 					}
 				}
@@ -262,8 +266,8 @@ public class GoogleDriveInstanceSync {
 			DriveIdCache.save(new DriveIdCache.Data(cloudifyFolderId, instancesFolderId, cancelledInstances));
 
 			Cloudify.LOGGER.info(
-				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred); manifest updated with partial progress",
-				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred.get(), totalFiles
+				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred, {} skipped); manifest updated with partial progress",
+				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred.get(), totalFiles, skippedCount.get()
 			);
 			return;
 		}
@@ -287,12 +291,13 @@ public class GoogleDriveInstanceSync {
 		DriveIdCache.save(new DriveIdCache.Data(cloudifyFolderId, instancesFolderId, updatedInstances));
 
 		Cloudify.LOGGER.info(
-			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} bytes, {} requests) in {} ms"
+			"Synced instance '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} skipped, {} bytes, {} requests) in {} ms"
 				+ " [bootstrap {} / manifest {} / walk+hash {} / diff {} / folders {} / upload {} / delete {} / commit {}]",
 			targetName,
 			toUpload.size(),
 			deletedPaths.size(),
 			unchangedFiles,
+			skippedCount.get(),
 			totalSizeBytes,
 			GoogleDriveFolders.getRequestCount(),
 			millis(startedAt, commitDoneAt),
