@@ -32,6 +32,8 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -45,6 +47,8 @@ import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.INSTANCES_FO
 public class GoogleDriveInstanceSync {
 	private static final String METADATA_FILE_NAME = "metadata.json";
 	private static final String MANIFEST_FILE_NAME = "manifest.json";
+	// I/O-bound, not CPU-bound, so this is independent of core count — see the pool creation site.
+	private static final int UPLOAD_CONCURRENCY = 6;
 
 	public record ModEntry(String id, String version) {
 	}
@@ -144,6 +148,8 @@ public class GoogleDriveInstanceSync {
 		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
 			totalBytes += entry.getValue().sizeBytes();
 		}
+
+		final long totalUploadBytes = totalBytes;
 		int totalFiles = toUpload.size() + deletedPaths.size();
 		int unchangedFiles = updatedEntries.size();
 		long diffDoneAt = System.nanoTime();
@@ -159,32 +165,50 @@ public class GoogleDriveInstanceSync {
 		AtomicInteger filesTransferred = new AtomicInteger();
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
-		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
-			if (cancelled.get()) {
-				break;
-			}
-
-			String relativePath = entry.getKey();
-			FileFingerprint local = entry.getValue();
-			FileFingerprint previous = previousManifest.entries().get(relativePath);
-			try {
-				Path relative = Path.of(relativePath);
-				Path parent = relative.getParent();
-				String folderId = parent == null ? folderIdCache.get("") : folderIdCache.get(toKey(parent));
-				String fileId = GoogleDriveFolders.uploadFile(
-					drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile()), local.driveFileId()
-				);
-				updatedEntries.put(relativePath, new FileFingerprint(relativePath, local.sizeBytes(), local.mtimeMillis(), local.contentHash(), fileId));
-			} catch (IOException e) {
-				Cloudify.LOGGER.warn("Failed to sync '{}' to Google Drive, skipping (it may have been a transient file rewritten by the game)", relativePath, e);
-				if (previous != null) {
-					updatedEntries.put(relativePath, previous);
+		AtomicInteger uploadThreadCounter = new AtomicInteger();
+		ExecutorService uploadPool = Executors.newFixedThreadPool(UPLOAD_CONCURRENCY, r -> {
+			Thread thread = new Thread(r, "cloudify-upload-" + uploadThreadCounter.incrementAndGet());
+			thread.setDaemon(true);
+			return thread;
+		});
+		try {
+			List<CompletableFuture<Void>> uploadFutures = new ArrayList<>();
+			for (Map.Entry<String, FileFingerprint> entry : toUpload) {
+				if (cancelled.get()) {
+					break;
 				}
-			}
 
-			long newBytesTransferred = bytesTransferred.addAndGet(local.sizeBytes());
-			int newFilesTransferred = filesTransferred.incrementAndGet();
-			listener.onProgress(newBytesTransferred, totalBytes, newFilesTransferred, totalFiles, relativePath);
+				String relativePath = entry.getKey();
+				FileFingerprint local = entry.getValue();
+				uploadFutures.add(CompletableFuture.runAsync(() -> {
+					if (cancelled.get()) {
+						return;
+					}
+
+					FileFingerprint previous = previousManifest.entries().get(relativePath);
+					try {
+						Path relative = Path.of(relativePath);
+						Path parent = relative.getParent();
+						String folderId = parent == null ? folderIdCache.get("") : folderIdCache.get(toKey(parent));
+						String fileId = GoogleDriveFolders.uploadFile(
+							drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", gameDir.resolve(relativePath).toFile()), local.driveFileId()
+						);
+						updatedEntries.put(relativePath, new FileFingerprint(relativePath, local.sizeBytes(), local.mtimeMillis(), local.contentHash(), fileId));
+					} catch (IOException e) {
+						Cloudify.LOGGER.warn("Failed to sync '{}' to Google Drive, skipping (it may have been a transient file rewritten by the game)", relativePath, e);
+						if (previous != null) {
+							updatedEntries.put(relativePath, previous);
+						}
+					}
+
+					long newBytesTransferred = bytesTransferred.addAndGet(local.sizeBytes());
+					int newFilesTransferred = filesTransferred.incrementAndGet();
+					listener.onProgress(newBytesTransferred, totalUploadBytes, newFilesTransferred, totalFiles, relativePath);
+				}, uploadPool));
+			}
+			CompletableFuture.allOf(uploadFutures.toArray(CompletableFuture[]::new)).join();
+		} finally {
+			uploadPool.shutdown();
 		}
 		long uploadDoneAt = System.nanoTime();
 
