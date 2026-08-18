@@ -212,11 +212,13 @@ public class GoogleDriveInstanceSync {
 		}
 		long uploadDoneAt = System.nanoTime();
 
+		Set<String> unattemptedDeletes = new HashSet<>(deletedPaths);
 		if (!cancelled.get()) {
 			for (String relativePath : deletedPaths) {
 				if (cancelled.get()) {
 					break;
 				}
+				unattemptedDeletes.remove(relativePath);
 
 				FileFingerprint gone = previousManifest.entries().get(relativePath);
 				if (gone.driveFileId() == null) {
@@ -236,15 +238,36 @@ public class GoogleDriveInstanceSync {
 		}
 		long deleteDoneAt = System.nanoTime();
 
+		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
+			String relativePath = entry.getKey();
+			if (!updatedEntries.containsKey(relativePath)) {
+				FileFingerprint previous = previousManifest.entries().get(relativePath);
+				if (previous != null) {
+					updatedEntries.put(relativePath, previous);
+				}
+			}
+		}
+		for (String relativePath : unattemptedDeletes) {
+			updatedEntries.put(relativePath, previousManifest.entries().get(relativePath));
+		}
+
+		InstanceManifest updatedManifest = new InstanceManifest(updatedEntries, folderIdCache);
+		String manifestFileId = GoogleDriveFolders.uploadFile(
+			drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)), cachedIds.manifestFileId()
+		);
+
 		if (cancelled.get()) {
+			Map<String, DriveIdCache.InstanceIds> cancelledInstances = new LinkedHashMap<>(idCache.instances());
+			cancelledInstances.put(slug, new DriveIdCache.InstanceIds(instanceFolderId, manifestFileId, cachedIds.metadataFileId()));
+			DriveIdCache.save(new DriveIdCache.Data(cloudifyFolderId, instancesFolderId, cancelledInstances));
+
 			Cloudify.LOGGER.info(
-				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred); manifest not updated",
+				"Instance sync for '{}' was cancelled after {} ms, {} requests ({} of {} files transferred); manifest updated with partial progress",
 				targetName, millis(startedAt, deleteDoneAt), GoogleDriveFolders.getRequestCount(), filesTransferred.get(), totalFiles
 			);
 			return;
 		}
 
-		InstanceManifest updatedManifest = new InstanceManifest(updatedEntries, folderIdCache);
 		InstanceMetadata updatedMetadata = new InstanceMetadata(
 			metadata.displayName(),
 			metadata.minecraftVersion(),
@@ -253,10 +276,6 @@ public class GoogleDriveInstanceSync {
 			System.currentTimeMillis(),
 			totalSizeBytes,
 			updatedEntries.size()
-		);
-
-		String manifestFileId = GoogleDriveFolders.uploadFile(
-			drive, instanceFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", serializeManifest(updatedManifest)), cachedIds.manifestFileId()
 		);
 		String metadataFileId = GoogleDriveFolders.uploadFile(
 			drive, instanceFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(updatedMetadata)), cachedIds.metadataFileId()
