@@ -5,13 +5,12 @@ import java.util.Set;
 
 public class InstanceFileFilter {
 	private static final Set<String> EXCLUDED_TOP_LEVEL_DIRS = Set.of("logs", "crash-reports");
+	private static final Path NORMALIZED_TOKENS_DIRECTORY = GoogleDriveAuth.TOKENS_DIRECTORY.toAbsolutePath().normalize();
 
-	public static boolean isExcluded(Path gameDir, Path candidate) {
-		Path normalizedGameDir = gameDir.toAbsolutePath().normalize();
+	public static boolean isExcluded(Path normalizedGameDir, Path candidate) {
 		Path normalizedCandidate = candidate.toAbsolutePath().normalize();
 
-		Path normalizedTokensDirectory = GoogleDriveAuth.TOKENS_DIRECTORY.toAbsolutePath().normalize();
-		if (normalizedCandidate.equals(normalizedTokensDirectory) || normalizedCandidate.startsWith(normalizedTokensDirectory)) {
+		if (normalizedCandidate.equals(NORMALIZED_TOKENS_DIRECTORY) || normalizedCandidate.startsWith(NORMALIZED_TOKENS_DIRECTORY)) {
 			return true;
 		}
 

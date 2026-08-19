@@ -2,7 +2,6 @@ package tomatopotato.cloudify.client.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.http.ByteArrayContent;
-import com.google.api.client.http.FileContent;
 import com.google.api.client.json.GenericJson;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
@@ -53,13 +52,11 @@ public class GoogleDriveWorldSync {
 	) {
 	}
 
-	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata, @Nullable Path iconFile) throws IOException {
-		uploadWorld(worldFolder, worldName, metadata, iconFile, TransferProgressListener.NO_OP, new AtomicBoolean(false));
+	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata) throws IOException {
+		uploadWorld(worldFolder, worldName, metadata, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
 
-	public static void uploadWorld(
-		Path worldFolder, String worldName, WorldMetadata metadata, @Nullable Path iconFile, TransferProgressListener listener, AtomicBoolean cancelled
-	) throws IOException {
+	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
 		if (!GoogleDriveLogin.isLoggedIn()) {
 			return;
 		}
@@ -82,7 +79,7 @@ public class GoogleDriveWorldSync {
 		});
 		DriveTreeSync.SyncResult result;
 		try {
-			result = DriveTreeSync.sync(drive, worldFolderId, worldFolder, previousManifest, (root, candidate) -> false, listener, cancelled, uploadPool);
+			result = DriveTreeSync.sync(drive, worldFolderId, worldFolder, previousManifest, WorldFileFilter::isExcluded, listener, cancelled, uploadPool);
 		} finally {
 			uploadPool.shutdown();
 		}
@@ -102,14 +99,8 @@ public class GoogleDriveWorldSync {
 		try {
 			uploadFile(drive, worldFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(metadata)));
 			Cloudify.LOGGER.info("Uploaded metadata for world '{}' to Google Drive", worldName);
-			if (iconFile != null && Files.isRegularFile(iconFile)) {
-				uploadFile(drive, worldFolderId, ICON_FILE_NAME, new FileContent("image/png", iconFile.toFile()));
-				Cloudify.LOGGER.info("Uploaded icon for world '{}' to Google Drive ({})", worldName, iconFile);
-			} else {
-				Cloudify.LOGGER.info("No local icon.png found for world '{}', skipping icon upload (iconFile={})", worldName, iconFile);
-			}
 		} catch (IOException e) {
-			Cloudify.LOGGER.warn("Failed to upload metadata/icon for world '{}' to Google Drive", worldName, e);
+			Cloudify.LOGGER.warn("Failed to upload metadata for world '{}' to Google Drive", worldName, e);
 		}
 	}
 
@@ -246,7 +237,7 @@ public class GoogleDriveWorldSync {
 
 		for (File child : children) {
 			String name = child.getName();
-			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(ICON_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
+			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
 				continue;
 			}
 
