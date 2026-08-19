@@ -16,6 +16,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
@@ -30,7 +34,9 @@ import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.uploadFile;
 
 public class GoogleDriveWorldSync {
 	private static final String METADATA_FILE_NAME = "metadata.json";
+	private static final String MANIFEST_FILE_NAME = "manifest.json";
 	private static final String ICON_FILE_NAME = "icon.png";
+	private static final int UPLOAD_CONCURRENCY = 6;
 
 	public record WorldMetadata(String displayName, String gameMode, boolean hardcore, String version, long lastPlayed) {
 	}
@@ -47,36 +53,63 @@ public class GoogleDriveWorldSync {
 	) {
 	}
 
-	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata, @Nullable Path iconFile) {
+	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata, @Nullable Path iconFile) throws IOException {
+		uploadWorld(worldFolder, worldName, metadata, iconFile, TransferProgressListener.NO_OP, new AtomicBoolean(false));
+	}
+
+	public static void uploadWorld(
+		Path worldFolder, String worldName, WorldMetadata metadata, @Nullable Path iconFile, TransferProgressListener listener, AtomicBoolean cancelled
+	) throws IOException {
+		if (!GoogleDriveLogin.isLoggedIn()) {
+			return;
+		}
+
+		GoogleDriveFolders.resetRequestCount();
+		Credential credential = GoogleDriveLogin.getCredential();
+		Drive drive = buildDriveClient(credential);
+
+		String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
+		String worldsFolderId = findOrCreateFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId);
+		String worldFolderId = findOrCreateFolder(drive, worldName, worldsFolderId);
+
+		DriveTreeSync.DriveManifest previousManifest = downloadManifestIfPresent(drive, worldFolderId).orElse(DriveTreeSync.DriveManifest.empty());
+
+		AtomicInteger uploadThreadCounter = new AtomicInteger();
+		ExecutorService uploadPool = Executors.newFixedThreadPool(UPLOAD_CONCURRENCY, r -> {
+			Thread thread = new Thread(r, "cloudify-world-upload-" + uploadThreadCounter.incrementAndGet());
+			thread.setDaemon(true);
+			return thread;
+		});
+		DriveTreeSync.SyncResult result;
 		try {
-			if (!GoogleDriveLogin.isLoggedIn()) {
-				return;
-			}
+			result = DriveTreeSync.sync(drive, worldFolderId, worldFolder, previousManifest, (root, candidate) -> false, listener, cancelled, uploadPool);
+		} finally {
+			uploadPool.shutdown();
+		}
 
-			Credential credential = GoogleDriveLogin.getCredential();
-			Drive drive = buildDriveClient(credential);
+		DriveTreeSync.DriveManifest updatedManifest = new DriveTreeSync.DriveManifest(result.entries(), result.folderIds());
+		uploadFile(drive, worldFolderId, MANIFEST_FILE_NAME, new ByteArrayContent("application/json", DriveTreeSync.serializeManifest(updatedManifest)));
 
-			String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
-			String worldsFolderId = findOrCreateFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId);
-			String worldFolderId = findOrCreateFolder(drive, worldName, worldsFolderId);
+		Cloudify.LOGGER.info(
+			"Synced world '{}' to Google Drive ({} files changed/added, {} deleted, {} unchanged, {} skipped, {} requests)",
+			worldName, result.uploadedCount(), result.deletedCount(), result.unchangedCount(), result.skippedCount(), GoogleDriveFolders.getRequestCount()
+		);
 
-			uploadDirectory(drive, worldFolder, worldFolderId);
-			Cloudify.LOGGER.info("Uploaded world '{}' to Google Drive", worldName);
+		if (cancelled.get()) {
+			return;
+		}
 
-			try {
-				uploadFile(drive, worldFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(metadata)));
-				Cloudify.LOGGER.info("Uploaded metadata for world '{}' to Google Drive", worldName);
-				if (iconFile != null && Files.isRegularFile(iconFile)) {
-					uploadFile(drive, worldFolderId, ICON_FILE_NAME, new FileContent("image/png", iconFile.toFile()));
-					Cloudify.LOGGER.info("Uploaded icon for world '{}' to Google Drive ({})", worldName, iconFile);
-				} else {
-					Cloudify.LOGGER.info("No local icon.png found for world '{}', skipping icon upload (iconFile={})", worldName, iconFile);
-				}
-			} catch (IOException e) {
-				Cloudify.LOGGER.warn("Failed to upload metadata/icon for world '{}' to Google Drive", worldName, e);
+		try {
+			uploadFile(drive, worldFolderId, METADATA_FILE_NAME, new ByteArrayContent("application/json", serializeMetadata(metadata)));
+			Cloudify.LOGGER.info("Uploaded metadata for world '{}' to Google Drive", worldName);
+			if (iconFile != null && Files.isRegularFile(iconFile)) {
+				uploadFile(drive, worldFolderId, ICON_FILE_NAME, new FileContent("image/png", iconFile.toFile()));
+				Cloudify.LOGGER.info("Uploaded icon for world '{}' to Google Drive ({})", worldName, iconFile);
+			} else {
+				Cloudify.LOGGER.info("No local icon.png found for world '{}', skipping icon upload (iconFile={})", worldName, iconFile);
 			}
 		} catch (IOException e) {
-			Cloudify.LOGGER.error("Failed to upload world '{}' to Google Drive", worldName, e);
+			Cloudify.LOGGER.warn("Failed to upload metadata/icon for world '{}' to Google Drive", worldName, e);
 		}
 	}
 
@@ -213,7 +246,7 @@ public class GoogleDriveWorldSync {
 
 		for (File child : children) {
 			String name = child.getName();
-			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(ICON_FILE_NAME))) {
+			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(ICON_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
 				continue;
 			}
 
@@ -308,22 +341,16 @@ public class GoogleDriveWorldSync {
 		return GoogleDriveAuth.JSON_FACTORY.toByteArray(json);
 	}
 
-	private static void uploadDirectory(Drive drive, Path localDir, String parentFolderId) throws IOException {
-		try (var children = Files.list(localDir)) {
-			for (Path child : (Iterable<Path>) children::iterator) {
-				String name = child.getFileName().toString();
-				try {
-					if (Files.isDirectory(child)) {
-						String childFolderId = findOrCreateFolder(drive, name, parentFolderId);
-						uploadDirectory(drive, child, childFolderId);
-					} else {
-						uploadFile(drive, parentFolderId, name, new FileContent("application/octet-stream", child.toFile()));
-					}
-				} catch (IOException e) {
-					Cloudify.LOGGER.warn("Failed to upload '{}', skipping (it may have been a transient file rewritten by the game)", child, e);
-				}
-			}
+	private static Optional<DriveTreeSync.DriveManifest> downloadManifestIfPresent(Drive drive, String worldFolderId) throws IOException {
+		String query = "'" + worldFolderId + "' in parents and name = '" + MANIFEST_FILE_NAME + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute();
+		List<File> matches = result.getFiles();
+		if (matches == null || matches.isEmpty()) {
+			return Optional.empty();
+		}
+
+		try (InputStream in = drive.files().get(matches.get(0).getId()).executeMediaAsInputStream()) {
+			return Optional.of(DriveTreeSync.deserializeManifest(in));
 		}
 	}
-
 }

@@ -36,7 +36,13 @@ public class CloudifyClient implements ClientModInitializer {
 			String worldName = worldFolder.normalize().getFileName().toString();
 			WorldMetadata metadata = gatherMetadata(server);
 			Path iconFile = server.getWorldPath(LevelResource.ICON_FILE);
-			UPLOAD_EXECUTOR.execute(() -> GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile));
+			UPLOAD_EXECUTOR.execute(() -> {
+				try {
+					GoogleDriveWorldSync.uploadWorld(worldFolder, worldName, metadata, iconFile);
+				} catch (IOException e) {
+					Cloudify.LOGGER.error("Failed to upload world '{}' to Google Drive", worldName, e);
+				}
+			});
 		});
 
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
