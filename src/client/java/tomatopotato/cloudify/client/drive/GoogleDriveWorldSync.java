@@ -9,11 +9,11 @@ import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -169,21 +169,25 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static CompletableFuture<Void> importWorldAsync(DriveWorldEntry entry, Path targetDir) {
-		return CompletableFuture.runAsync(() -> importWorldUnchecked(entry, targetDir), Util.backgroundExecutor());
+		return importWorldAsync(entry, targetDir, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
 
-	private static void importWorldUnchecked(DriveWorldEntry entry, Path targetDir) {
+	public static CompletableFuture<Void> importWorldAsync(DriveWorldEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
+		return CompletableFuture.runAsync(() -> importWorldUnchecked(entry, targetDir, listener, cancelled), Util.backgroundExecutor());
+	}
+
+	private static void importWorldUnchecked(DriveWorldEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
 		try {
-			importWorld(entry, targetDir);
+			importWorld(entry, targetDir, listener, cancelled);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 	}
 
-	private static void importWorld(DriveWorldEntry entry, Path targetDir) throws IOException {
+	private static void importWorld(DriveWorldEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = buildDriveClient(credential);
-		downloadDirectory(drive, entry.folderId(), targetDir, true);
+		DriveTreeSync.download(drive, entry.folderId(), targetDir, Set.of(METADATA_FILE_NAME, MANIFEST_FILE_NAME), 0L, 0, listener, cancelled);
 	}
 
 	public static void deleteWorld(String worldName) throws IOException {
@@ -222,32 +226,6 @@ public class GoogleDriveWorldSync {
 			deleteWorld(worldName);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
-		}
-	}
-
-	private static void downloadDirectory(Drive drive, String folderId, Path targetDir, boolean isRoot) throws IOException {
-		Files.createDirectories(targetDir);
-
-		String query = "'" + folderId + "' in parents and trashed = false";
-		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType)").setPageSize(1000).execute();
-		List<File> children = result.getFiles();
-		if (children == null) {
-			return;
-		}
-
-		for (File child : children) {
-			String name = child.getName();
-			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
-				continue;
-			}
-
-			if (DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
-				downloadDirectory(drive, child.getId(), targetDir.resolve(name), false);
-			} else {
-				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
-					Files.copy(in, targetDir.resolve(name));
-				}
-			}
 		}
 	}
 

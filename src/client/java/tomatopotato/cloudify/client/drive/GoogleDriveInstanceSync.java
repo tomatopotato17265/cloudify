@@ -10,7 +10,6 @@ import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -292,54 +292,12 @@ public class GoogleDriveInstanceSync {
 		int totalFiles = entry.fileCount();
 		listener.onProgress(0, totalBytes, 0, totalFiles, "");
 
-		TransferState state = new TransferState();
-		boolean completed = downloadDirectory(drive, entry.folderId(), targetDir, true, listener, cancelled, totalBytes, totalFiles, state);
+		boolean completed = DriveTreeSync.download(
+			drive, entry.folderId(), targetDir, Set.of(METADATA_FILE_NAME, MANIFEST_FILE_NAME), totalBytes, totalFiles, listener, cancelled
+		);
 		if (!completed) {
 			Cloudify.LOGGER.info("Instance restore for '{}' was cancelled before completion", entry.displayName());
 		}
-	}
-
-	private static final class TransferState {
-		long bytesTransferred;
-		int filesTransferred;
-	}
-
-	private static boolean downloadDirectory(
-		Drive drive, String folderId, Path targetDir, boolean isRoot, TransferProgressListener listener, AtomicBoolean cancelled, long totalBytes, int totalFiles, TransferState state
-	) throws IOException {
-		Files.createDirectories(targetDir);
-
-		String query = "'" + folderId + "' in parents and trashed = false";
-		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType, size)").setPageSize(1000).execute();
-		List<File> children = result.getFiles();
-		if (children == null) {
-			return true;
-		}
-
-		for (File child : children) {
-			if (cancelled.get()) {
-				return false;
-			}
-
-			String name = child.getName();
-			if (isRoot && (name.equals(METADATA_FILE_NAME) || name.equals(MANIFEST_FILE_NAME))) {
-				continue;
-			}
-
-			if (GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
-				if (!downloadDirectory(drive, child.getId(), targetDir.resolve(name), false, listener, cancelled, totalBytes, totalFiles, state)) {
-					return false;
-				}
-			} else {
-				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
-					Files.copy(in, targetDir.resolve(name));
-				}
-				state.bytesTransferred += child.getSize() != null ? child.getSize() : 0L;
-				state.filesTransferred++;
-				listener.onProgress(state.bytesTransferred, totalBytes, state.filesTransferred, totalFiles, name);
-			}
-		}
-		return true;
 	}
 
 	public static void deleteInstance(String instanceFolderId) throws IOException {

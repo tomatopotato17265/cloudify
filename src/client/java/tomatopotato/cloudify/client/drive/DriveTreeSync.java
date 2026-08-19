@@ -4,6 +4,7 @@ import com.google.api.client.http.FileContent;
 import com.google.api.client.json.GenericJson;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
+import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitResult;
@@ -215,6 +216,60 @@ public class DriveTreeSync {
 
 	private static long millis(long fromNanos, long toNanos) {
 		return (toNanos - fromNanos) / 1_000_000L;
+	}
+
+	public static boolean download(
+		Drive drive, String folderId, Path targetDir, Set<String> rootSkipNames, long totalBytes, int totalFiles, TransferProgressListener listener, AtomicBoolean cancelled
+	) throws IOException {
+		return downloadDirectory(drive, folderId, targetDir, true, rootSkipNames, totalBytes, totalFiles, new AtomicLong(), new AtomicInteger(), listener, cancelled);
+	}
+
+	private static boolean downloadDirectory(
+		Drive drive,
+		String folderId,
+		Path targetDir,
+		boolean isRoot,
+		Set<String> rootSkipNames,
+		long totalBytes,
+		int totalFiles,
+		AtomicLong bytesTransferred,
+		AtomicInteger filesTransferred,
+		TransferProgressListener listener,
+		AtomicBoolean cancelled
+	) throws IOException {
+		Files.createDirectories(targetDir);
+
+		String query = "'" + folderId + "' in parents and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, mimeType, size)").setPageSize(1000).execute();
+		List<File> children = result.getFiles();
+		if (children == null) {
+			return true;
+		}
+
+		for (File child : children) {
+			if (cancelled.get()) {
+				return false;
+			}
+
+			String name = child.getName();
+			if (isRoot && rootSkipNames.contains(name)) {
+				continue;
+			}
+
+			if (GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE.equals(child.getMimeType())) {
+				if (!downloadDirectory(drive, child.getId(), targetDir.resolve(name), false, rootSkipNames, totalBytes, totalFiles, bytesTransferred, filesTransferred, listener, cancelled)) {
+					return false;
+				}
+			} else {
+				try (InputStream in = drive.files().get(child.getId()).executeMediaAsInputStream()) {
+					Files.copy(in, targetDir.resolve(name));
+				}
+				long newBytesTransferred = bytesTransferred.addAndGet(child.getSize() != null ? child.getSize() : 0L);
+				int newFilesTransferred = filesTransferred.incrementAndGet();
+				listener.onProgress(newBytesTransferred, totalBytes, newFilesTransferred, totalFiles, name);
+			}
+		}
+		return true;
 	}
 
 	private static void preResolveFolders(Drive drive, List<String> relativeFilePaths, Map<String, String> folderIdCache) throws IOException {
