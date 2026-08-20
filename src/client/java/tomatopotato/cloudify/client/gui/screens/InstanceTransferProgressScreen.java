@@ -84,6 +84,7 @@ public class InstanceTransferProgressScreen extends Screen {
 				)
 				: Component.translatable("options.instance_transfer.starting");
 			this.progressWidget.setMessage(message);
+			this.repositionElements();
 		});
 	}
 
