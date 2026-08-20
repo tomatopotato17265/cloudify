@@ -23,7 +23,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 
@@ -34,6 +33,13 @@ public class GoogleDriveInstanceSync {
 	private static final String METADATA_FILE_NAME = "metadata.json";
 	private static final String MANIFEST_FILE_NAME = "manifest.json";
 	private static final int UPLOAD_CONCURRENCY = 6;
+
+	private static final AtomicInteger BACKGROUND_THREAD_COUNTER = new AtomicInteger();
+	private static final ExecutorService BACKGROUND_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
+		Thread thread = new Thread(r, "cloudify-instance-io-" + BACKGROUND_THREAD_COUNTER.incrementAndGet());
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	public record ModEntry(String id, String version) {
 	}
@@ -67,7 +73,9 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static void syncInstance(Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
+		Cloudify.LOGGER.info("Instance sync for '{}' starting on thread '{}'", targetName, Thread.currentThread().getName());
 		if (!GoogleDriveLogin.isLoggedIn()) {
+			Cloudify.LOGGER.info("Instance sync for '{}' skipped: not logged in to Google Drive", targetName);
 			return;
 		}
 
@@ -91,9 +99,23 @@ public class GoogleDriveInstanceSync {
 			cachedIds = DriveIdCache.InstanceIds.EMPTY;
 		}
 		long bootstrapDoneAt = System.nanoTime();
+		Cloudify.LOGGER.info("Instance sync for '{}' bootstrap resolved (cache usable: {}) in {} ms", targetName, cacheUsable, millis(startedAt, bootstrapDoneAt));
+
+		if (cancelled.get()) {
+			Cloudify.LOGGER.info("Instance sync for '{}' cancelled during bootstrap", targetName);
+			return;
+		}
 
 		DriveTreeSync.DriveManifest previousManifest = downloadManifestIfPresent(drive, instanceFolderId, cachedIds.manifestFileId()).orElse(DriveTreeSync.DriveManifest.empty());
 		long manifestReadDoneAt = System.nanoTime();
+		Cloudify.LOGGER.info(
+			"Instance sync for '{}' read previous manifest ({} entries) in {} ms", targetName, previousManifest.entries().size(), millis(bootstrapDoneAt, manifestReadDoneAt)
+		);
+
+		if (cancelled.get()) {
+			Cloudify.LOGGER.info("Instance sync for '{}' cancelled after reading the manifest", targetName);
+			return;
+		}
 
 		AtomicInteger uploadThreadCounter = new AtomicInteger();
 		ExecutorService uploadPool = Executors.newFixedThreadPool(UPLOAD_CONCURRENCY, r -> {
@@ -108,6 +130,7 @@ public class GoogleDriveInstanceSync {
 			uploadPool.shutdown();
 		}
 		long syncDoneAt = System.nanoTime();
+		Cloudify.LOGGER.info("Instance sync for '{}' tree sync finished in {} ms", targetName, millis(manifestReadDoneAt, syncDoneAt));
 
 		DriveTreeSync.DriveManifest updatedManifest = new DriveTreeSync.DriveManifest(result.entries(), result.folderIds());
 		String manifestFileId = GoogleDriveFolders.uploadFile(
@@ -177,7 +200,7 @@ public class GoogleDriveInstanceSync {
 	public static CompletableFuture<Void> syncInstanceAsync(
 		Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled
 	) {
-		return CompletableFuture.runAsync(() -> syncInstanceUnchecked(gameDir, targetName, metadata, listener, cancelled), Util.backgroundExecutor());
+		return CompletableFuture.runAsync(() -> syncInstanceUnchecked(gameDir, targetName, metadata, listener, cancelled), BACKGROUND_EXECUTOR);
 	}
 
 	private static void syncInstanceUnchecked(Path gameDir, String targetName, InstanceMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) {
@@ -221,7 +244,7 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static CompletableFuture<List<DriveInstanceEntry>> listInstancesAsync() {
-		return CompletableFuture.supplyAsync(GoogleDriveInstanceSync::listInstancesUnchecked, Util.backgroundExecutor());
+		return CompletableFuture.supplyAsync(GoogleDriveInstanceSync::listInstancesUnchecked, BACKGROUND_EXECUTOR);
 	}
 
 	private static List<DriveInstanceEntry> listInstancesUnchecked() {
@@ -273,7 +296,7 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static CompletableFuture<Void> downloadInstanceAsync(DriveInstanceEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
-		return CompletableFuture.runAsync(() -> downloadInstanceUnchecked(entry, targetDir, listener, cancelled), Util.backgroundExecutor());
+		return CompletableFuture.runAsync(() -> downloadInstanceUnchecked(entry, targetDir, listener, cancelled), BACKGROUND_EXECUTOR);
 	}
 
 	private static void downloadInstanceUnchecked(DriveInstanceEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
@@ -312,7 +335,7 @@ public class GoogleDriveInstanceSync {
 	}
 
 	public static CompletableFuture<Void> deleteInstanceAsync(String instanceFolderId) {
-		return CompletableFuture.runAsync(() -> deleteInstanceUnchecked(instanceFolderId), Util.backgroundExecutor());
+		return CompletableFuture.runAsync(() -> deleteInstanceUnchecked(instanceFolderId), BACKGROUND_EXECUTOR);
 	}
 
 	private static void deleteInstanceUnchecked(String instanceFolderId) {

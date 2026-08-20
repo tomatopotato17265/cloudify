@@ -35,15 +35,21 @@ public class GoogleDriveFolders {
 		return REQUEST_COUNT.get();
 	}
 
+	private static final int BACKOFF_MAX_ELAPSED_MILLIS = 60_000;
+
+	private static ExponentialBackOff newBoundedBackOff() {
+		return new ExponentialBackOff.Builder().setMaxElapsedTimeMillis(BACKOFF_MAX_ELAPSED_MILLIS).build();
+	}
+
 	public static Drive buildDriveClient(Credential credential) {
 		HttpRequestInitializer initializer = request -> {
 			credential.initialize(request);
 			request.setConnectTimeout(15_000);
 			request.setReadTimeout(60_000);
 			request.setWriteTimeout(60_000);
-			request.setIOExceptionHandler(new HttpBackOffIOExceptionHandler(new ExponentialBackOff()));
+			request.setIOExceptionHandler(new HttpBackOffIOExceptionHandler(newBoundedBackOff()));
 
-			HttpBackOffUnsuccessfulResponseHandler backoffHandler = new HttpBackOffUnsuccessfulResponseHandler(new ExponentialBackOff());
+			HttpBackOffUnsuccessfulResponseHandler backoffHandler = new HttpBackOffUnsuccessfulResponseHandler(newBoundedBackOff());
 			backoffHandler.setBackOffRequired(response -> {
 				int statusCode = response.getStatusCode();
 				return statusCode == 403 || statusCode == 429 || statusCode / 100 == 5;

@@ -25,6 +25,7 @@ public class InstanceTransferProgressScreen extends Screen {
 	private final HeaderAndFooterLayout layout = new HeaderAndFooterLayout(this, 33);
 
 	private StringWidget progressWidget;
+	private Button cancelButton;
 	private boolean started;
 	private int lastFilesTransferred = -1;
 
@@ -44,13 +45,25 @@ public class InstanceTransferProgressScreen extends Screen {
 		content.defaultCellSetting().alignHorizontallyCenter();
 		this.progressWidget = content.addChild(new StringWidget(Component.translatable("options.instance_transfer.starting"), this.font));
 
-		this.layout.addToFooter(Button.builder(CommonComponents.GUI_CANCEL, button -> this.cancelled.set(true)).width(200).build());
+		this.cancelButton = this.layout.addToFooter(Button.builder(CommonComponents.GUI_CANCEL, button -> this.requestCancel()).width(200).build());
 		this.layout.visitWidgets(this::addRenderableWidget);
 		this.repositionElements();
 
 		if (!this.started) {
 			this.started = true;
 			this.beginTransfer();
+		}
+	}
+
+	private void requestCancel() {
+		if (this.cancelled.compareAndSet(false, true)) {
+			if (this.cancelButton != null) {
+				this.cancelButton.active = false;
+			}
+			if (this.progressWidget != null) {
+				this.progressWidget.setMessage(Component.translatable("options.instance_transfer.cancelling"));
+				this.repositionElements();
+			}
 		}
 	}
 
@@ -73,7 +86,7 @@ public class InstanceTransferProgressScreen extends Screen {
 
 	private void onProgress(long bytesTransferred, long totalBytes, int filesTransferred, int totalFiles, String currentFileName) {
 		this.minecraft.execute(() -> {
-			if (this.progressWidget == null || filesTransferred < this.lastFilesTransferred) {
+			if (this.progressWidget == null || filesTransferred < this.lastFilesTransferred || this.cancelled.get()) {
 				return;
 			}
 			this.lastFilesTransferred = filesTransferred;
@@ -115,6 +128,6 @@ public class InstanceTransferProgressScreen extends Screen {
 
 	@Override
 	public void onClose() {
-		this.cancelled.set(true);
+		this.requestCancel();
 	}
 }

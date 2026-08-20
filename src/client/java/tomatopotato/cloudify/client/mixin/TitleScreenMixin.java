@@ -22,6 +22,7 @@ import tomatopotato.cloudify.client.gui.screens.InstanceTransferProgressScreen;
 public abstract class TitleScreenMixin {
 	@Redirect(method = "lambda$init$5", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;stop()V"))
 	private void cloudify$interceptQuit(Minecraft minecraft) {
+		Cloudify.LOGGER.info("Quit Game clicked, intercepting shutdown for instance sync");
 		CloudifyClient.SHUTDOWN_SYNC_HANDLED.set(true);
 
 		if (CloudifySettings.load().autoSyncMode() != AutoSyncMode.BEFORE_SHUTDOWN) {

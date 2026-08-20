@@ -19,7 +19,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.minecraft.util.Util;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 
@@ -36,6 +35,13 @@ public class GoogleDriveWorldSync {
 	private static final String MANIFEST_FILE_NAME = "manifest.json";
 	private static final String ICON_FILE_NAME = "icon.png";
 	private static final int UPLOAD_CONCURRENCY = 6;
+
+	private static final AtomicInteger BACKGROUND_THREAD_COUNTER = new AtomicInteger();
+	private static final ExecutorService BACKGROUND_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
+		Thread thread = new Thread(r, "cloudify-world-io-" + BACKGROUND_THREAD_COUNTER.incrementAndGet());
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	public record WorldMetadata(String displayName, String gameMode, boolean hardcore, String version, long lastPlayed) {
 	}
@@ -57,7 +63,9 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static void uploadWorld(Path worldFolder, String worldName, WorldMetadata metadata, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
+		Cloudify.LOGGER.info("World sync for '{}' starting on thread '{}'", worldName, Thread.currentThread().getName());
 		if (!GoogleDriveLogin.isLoggedIn()) {
+			Cloudify.LOGGER.info("World sync for '{}' skipped: not logged in to Google Drive", worldName);
 			return;
 		}
 
@@ -68,8 +76,20 @@ public class GoogleDriveWorldSync {
 		String cloudifyFolderId = findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
 		String worldsFolderId = findOrCreateFolder(drive, WORLDS_FOLDER_NAME, cloudifyFolderId);
 		String worldFolderId = findOrCreateFolder(drive, worldName, worldsFolderId);
+		Cloudify.LOGGER.info("World sync for '{}' bootstrap resolved", worldName);
+
+		if (cancelled.get()) {
+			Cloudify.LOGGER.info("World sync for '{}' cancelled during bootstrap", worldName);
+			return;
+		}
 
 		DriveTreeSync.DriveManifest previousManifest = downloadManifestIfPresent(drive, worldFolderId).orElse(DriveTreeSync.DriveManifest.empty());
+		Cloudify.LOGGER.info("World sync for '{}' read previous manifest ({} entries)", worldName, previousManifest.entries().size());
+
+		if (cancelled.get()) {
+			Cloudify.LOGGER.info("World sync for '{}' cancelled after reading the manifest", worldName);
+			return;
+		}
 
 		AtomicInteger uploadThreadCounter = new AtomicInteger();
 		ExecutorService uploadPool = Executors.newFixedThreadPool(UPLOAD_CONCURRENCY, r -> {
@@ -137,7 +157,7 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static CompletableFuture<List<DriveWorldEntry>> listWorldsAsync() {
-		return CompletableFuture.supplyAsync(GoogleDriveWorldSync::listWorldsUnchecked, Util.backgroundExecutor());
+		return CompletableFuture.supplyAsync(GoogleDriveWorldSync::listWorldsUnchecked, BACKGROUND_EXECUTOR);
 	}
 
 	private static List<DriveWorldEntry> listWorldsUnchecked() {
@@ -157,7 +177,7 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static CompletableFuture<byte[]> downloadIconAsync(String fileId) {
-		return CompletableFuture.supplyAsync(() -> downloadIconUnchecked(fileId), Util.backgroundExecutor());
+		return CompletableFuture.supplyAsync(() -> downloadIconUnchecked(fileId), BACKGROUND_EXECUTOR);
 	}
 
 	private static byte[] downloadIconUnchecked(String fileId) {
@@ -173,7 +193,7 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static CompletableFuture<Void> importWorldAsync(DriveWorldEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
-		return CompletableFuture.runAsync(() -> importWorldUnchecked(entry, targetDir, listener, cancelled), Util.backgroundExecutor());
+		return CompletableFuture.runAsync(() -> importWorldUnchecked(entry, targetDir, listener, cancelled), BACKGROUND_EXECUTOR);
 	}
 
 	private static void importWorldUnchecked(DriveWorldEntry entry, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) {
@@ -218,7 +238,7 @@ public class GoogleDriveWorldSync {
 	}
 
 	public static CompletableFuture<Void> deleteWorldAsync(String worldName) {
-		return CompletableFuture.runAsync(() -> deleteWorldUnchecked(worldName), Util.backgroundExecutor());
+		return CompletableFuture.runAsync(() -> deleteWorldUnchecked(worldName), BACKGROUND_EXECUTOR);
 	}
 
 	private static void deleteWorldUnchecked(String worldName) {

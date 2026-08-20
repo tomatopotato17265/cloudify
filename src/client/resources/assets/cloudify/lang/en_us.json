@@ -20,6 +20,7 @@
 	"options.backup_instance.failed.message": "Failed to back up the instance to Google Drive. Check the log for details.",
 	"options.instance_transfer.starting": "Starting...",
 	"options.instance_transfer.progress": "%s / %s files (%s / %s)",
+	"options.instance_transfer.cancelling": "Cancelling...",
 	"options.cloud_syncing.restore_instance": "Restore Instance",
 	"options.restore_instance.title": "Restore Instance",
 	"options.restore_instance.restore": "Restore",

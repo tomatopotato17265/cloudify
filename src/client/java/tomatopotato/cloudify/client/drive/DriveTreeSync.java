@@ -75,17 +75,23 @@ public class DriveTreeSync {
 		Map<String, FileFingerprint> localFingerprints = computeLocalFingerprints(localRoot, previousManifest, exclusionFilter);
 		long walkHashDoneAt = System.nanoTime();
 
+		long totalLocalBytes = 0L;
+		for (FileFingerprint local : localFingerprints.values()) {
+			totalLocalBytes += local.sizeBytes();
+		}
+
+		if (cancelled.get()) {
+			return unchangedResult(previousManifest, totalLocalBytes, millis(walkHashStartedAt, walkHashDoneAt), 0, 0);
+		}
+
 		Map<String, String> folderIdCache = new ConcurrentHashMap<>(previousManifest.folderIds());
 		folderIdCache.put("", rootFolderId);
 
 		Map<String, FileFingerprint> updatedEntries = new ConcurrentHashMap<>();
 		List<Map.Entry<String, FileFingerprint>> toUpload = new ArrayList<>();
-		long totalLocalBytes = 0L;
 
 		for (Map.Entry<String, FileFingerprint> entry : localFingerprints.entrySet()) {
 			FileFingerprint local = entry.getValue();
-			totalLocalBytes += local.sizeBytes();
-
 			FileFingerprint previous = previousManifest.entries().get(entry.getKey());
 			if (previous != null && previous.contentHash().equals(local.contentHash()) && previous.driveFileId() != null) {
 				updatedEntries.put(entry.getKey(), previous);
@@ -106,12 +112,22 @@ public class DriveTreeSync {
 		int unchangedCount = updatedEntries.size();
 		long diffDoneAt = System.nanoTime();
 
+		if (cancelled.get()) {
+			return unchangedResult(previousManifest, totalLocalBytes, millis(walkHashStartedAt, walkHashDoneAt), millis(walkHashDoneAt, diffDoneAt), 0);
+		}
+
 		List<String> pathsToUpload = new ArrayList<>();
 		for (Map.Entry<String, FileFingerprint> entry : toUpload) {
 			pathsToUpload.add(entry.getKey());
 		}
-		preResolveFolders(drive, pathsToUpload, folderIdCache);
+		preResolveFolders(drive, pathsToUpload, folderIdCache, cancelled);
 		long folderPrePassDoneAt = System.nanoTime();
+
+		if (cancelled.get()) {
+			return unchangedResult(
+				previousManifest, totalLocalBytes, millis(walkHashStartedAt, walkHashDoneAt), millis(walkHashDoneAt, diffDoneAt), millis(diffDoneAt, folderPrePassDoneAt)
+			);
+		}
 
 		AtomicLong bytesTransferred = new AtomicLong();
 		AtomicInteger filesTransferred = new AtomicInteger();
@@ -218,6 +234,12 @@ public class DriveTreeSync {
 		return (toNanos - fromNanos) / 1_000_000L;
 	}
 
+	private static SyncResult unchangedResult(DriveManifest previousManifest, long totalLocalBytes, long walkHashMillis, long diffMillis, long folderPrePassMillis) {
+		return new SyncResult(
+			previousManifest.entries(), previousManifest.folderIds(), 0, 0, previousManifest.entries().size(), 0, 0, totalLocalBytes, walkHashMillis, diffMillis, folderPrePassMillis, 0L, 0L
+		);
+	}
+
 	public static boolean download(
 		Drive drive, String folderId, Path targetDir, Set<String> rootSkipNames, long totalBytes, int totalFiles, TransferProgressListener listener, AtomicBoolean cancelled
 	) throws IOException {
@@ -272,7 +294,7 @@ public class DriveTreeSync {
 		return true;
 	}
 
-	private static void preResolveFolders(Drive drive, List<String> relativeFilePaths, Map<String, String> folderIdCache) throws IOException {
+	private static void preResolveFolders(Drive drive, List<String> relativeFilePaths, Map<String, String> folderIdCache, AtomicBoolean cancelled) throws IOException {
 		Set<String> ancestorDirs = new TreeSet<>();
 		for (String relativePath : relativeFilePaths) {
 			Path parent = Path.of(relativePath).getParent();
@@ -283,6 +305,9 @@ public class DriveTreeSync {
 		}
 
 		for (String dirPath : ancestorDirs) {
+			if (cancelled.get()) {
+				return;
+			}
 			if (folderIdCache.containsKey(dirPath)) {
 				continue;
 			}
