@@ -3,8 +3,13 @@ package tomatopotato.cloudify.client;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -21,7 +26,8 @@ import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
 
 public class CloudifyClient implements ClientModInitializer {
-	private static final String AUTO_SYNC_INSTANCE_TARGET_NAME = "Auto Backup";
+	public static final String AUTO_SYNC_INSTANCE_TARGET_NAME = "Auto Backup";
+	public static final AtomicBoolean SHUTDOWN_SYNC_HANDLED = new AtomicBoolean(false);
 
 	private static final ExecutorService UPLOAD_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
 		Thread thread = new Thread(r, "cloudify-world-upload");
@@ -46,16 +52,21 @@ public class CloudifyClient implements ClientModInitializer {
 
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			try {
-				if (CloudifySettings.load().autoSyncMode() != AutoSyncMode.BEFORE_SHUTDOWN) {
+				if (SHUTDOWN_SYNC_HANDLED.get() || CloudifySettings.load().autoSyncMode() != AutoSyncMode.BEFORE_SHUTDOWN) {
 					return;
 				}
 
 				Path gameDir = FabricLoader.getInstance().getGameDir();
 				InstanceMetadata instanceMetadata = InstanceMetadataFactory.gather(AUTO_SYNC_INSTANCE_TARGET_NAME);
+				CompletableFuture<Void> future = GoogleDriveInstanceSync.syncInstanceAsync(gameDir, AUTO_SYNC_INSTANCE_TARGET_NAME, instanceMetadata);
 				try {
-					GoogleDriveInstanceSync.syncInstance(gameDir, AUTO_SYNC_INSTANCE_TARGET_NAME, instanceMetadata);
-				} catch (IOException e) {
-					Cloudify.LOGGER.error("Failed to auto-sync instance to Google Drive before shutdown", e);
+					future.get(30, TimeUnit.SECONDS);
+				} catch (TimeoutException e) {
+					Cloudify.LOGGER.warn("Instance auto-sync before shutdown did not finish within 30 seconds, proceeding with shutdown anyway", e);
+				} catch (ExecutionException e) {
+					Cloudify.LOGGER.error("Failed to auto-sync instance to Google Drive before shutdown", e.getCause());
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
 				}
 			} finally {
 				GoogleDriveAuth.shutdownTransport();

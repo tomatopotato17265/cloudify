@@ -6,6 +6,7 @@
 		"ExampleClientMixin",
 		"OptionsScreenMixin",
 		"SelectWorldScreenMixin",
+		"TitleScreenMixin",
 		"WorldListEntryMixin"
 	],
 	"injectors": {
