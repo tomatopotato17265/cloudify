@@ -20,6 +20,9 @@
 		],
 		"client": [
 			"tomatopotato.cloudify.client.CloudifyClient"
+		],
+		"server": [
+			"tomatopotato.cloudify.server.CloudifyServer"
 		]
 	},
 	"mixins": [
