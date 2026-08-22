@@ -76,6 +76,8 @@ processResources {
 	inputs.property "version", version
 	inputs.property "googleDriveClientId", secrets.getProperty("googleDriveClientId")
 	inputs.property "googleDriveClientSecret", secrets.getProperty("googleDriveClientSecret")
+	inputs.property "googleDriveServerClientId", secrets.getProperty("googleDriveServerClientId", "")
+	inputs.property "googleDriveServerClientSecret", secrets.getProperty("googleDriveServerClientSecret", "")
 
 	filesMatching("fabric.mod.json") {
 		expand "version": version
@@ -84,7 +86,9 @@ processResources {
 	filesMatching("cloudify-google-drive.properties") {
 		expand(
 			"googleDriveClientId": secrets.getProperty("googleDriveClientId"),
-			"googleDriveClientSecret": secrets.getProperty("googleDriveClientSecret")
+			"googleDriveClientSecret": secrets.getProperty("googleDriveClientSecret"),
+			"googleDriveServerClientId": secrets.getProperty("googleDriveServerClientId", ""),
+			"googleDriveServerClientSecret": secrets.getProperty("googleDriveServerClientSecret", "")
 		)
 	}
 }
