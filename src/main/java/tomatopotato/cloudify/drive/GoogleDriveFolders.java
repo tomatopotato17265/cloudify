@@ -1,4 +1,4 @@
-package tomatopotato.cloudify.client.drive;
+package tomatopotato.cloudify.drive;
 
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;

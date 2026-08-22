@@ -7,7 +7,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
 import tomatopotato.cloudify.Cloudify;
-import tomatopotato.cloudify.client.drive.GoogleDriveAuth;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
 
 public class InstanceRestore {
 	public static void apply(Path gameDir, Path stagingDir) throws IOException {

@@ -6,7 +6,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import tomatopotato.cloudify.Cloudify;
-import tomatopotato.cloudify.client.drive.GoogleDriveAuth;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
 
 public class CloudifySettings {
 	private static final Path SETTINGS_FILE = GoogleDriveAuth.TOKENS_DIRECTORY.resolve("settings.json");

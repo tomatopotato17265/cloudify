@@ -64,15 +64,6 @@ afterEvaluate {
 	}
 }
 
-processResources {
-	def version = project.version
-	inputs.property "version", version
-
-	filesMatching("fabric.mod.json") {
-		expand "version": version
-	}
-}
-
 def secretsFile = file("secrets.properties")
 if (!secretsFile.exists()) {
 	throw new GradleException("secrets.properties not found. Copy secrets.properties.example to secrets.properties and fill in your Google OAuth credentials.")
@@ -80,9 +71,15 @@ if (!secretsFile.exists()) {
 def secrets = new Properties()
 secretsFile.withInputStream { secrets.load(it) }
 
-processClientResources {
+processResources {
+	def version = project.version
+	inputs.property "version", version
 	inputs.property "googleDriveClientId", secrets.getProperty("googleDriveClientId")
 	inputs.property "googleDriveClientSecret", secrets.getProperty("googleDriveClientSecret")
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
 
 	filesMatching("cloudify-google-drive.properties") {
 		expand(

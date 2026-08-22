@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
 
 public class DriveIdCache {
 	private static final Path CACHE_FILE = GoogleDriveAuth.TOKENS_DIRECTORY.resolve("drive-cache.json");

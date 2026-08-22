@@ -1,4 +1,4 @@
-package tomatopotato.cloudify.client.drive;
+package tomatopotato.cloudify.drive;
 
 import com.google.api.client.http.FileContent;
 import com.google.api.client.json.GenericJson;
@@ -390,7 +390,7 @@ public class DriveTreeSync {
 		}
 	}
 
-	static byte[] serializeManifest(DriveManifest manifest) throws IOException {
+	public static byte[] serializeManifest(DriveManifest manifest) throws IOException {
 		GenericJson json = new GenericJson();
 
 		List<String> sortedPaths = new ArrayList<>(manifest.entries().keySet());
@@ -412,7 +412,7 @@ public class DriveTreeSync {
 		return GoogleDriveAuth.JSON_FACTORY.toByteArray(json);
 	}
 
-	static DriveManifest deserializeManifest(InputStream in) throws IOException {
+	public static DriveManifest deserializeManifest(InputStream in) throws IOException {
 		GenericJson json = GoogleDriveAuth.JSON_FACTORY.fromInputStream(in, GenericJson.class);
 
 		Map<String, FileFingerprint> entries = new LinkedHashMap<>();

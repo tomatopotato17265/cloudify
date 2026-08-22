@@ -2,6 +2,7 @@ package tomatopotato.cloudify.client.drive;
 
 import java.nio.file.Path;
 import java.util.Set;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
 
 public class InstanceFileFilter {
 	private static final Set<String> EXCLUDED_TOP_LEVEL_DIRS = Set.of("logs", "crash-reports");

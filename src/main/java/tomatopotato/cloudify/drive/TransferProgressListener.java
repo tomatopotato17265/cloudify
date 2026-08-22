@@ -1,4 +1,4 @@
-package tomatopotato.cloudify.client.drive;
+package tomatopotato.cloudify.drive;
 
 public interface TransferProgressListener {
 	void onProgress(long bytesTransferred, long totalBytes, int filesTransferred, int totalFiles, String currentFileName);

@@ -25,9 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.drive.DriveTreeSync;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
+import tomatopotato.cloudify.drive.GoogleDriveFolders;
+import tomatopotato.cloudify.drive.TransferProgressListener;
 
-import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.DRIVE_FOLDER_NAME;
-import static tomatopotato.cloudify.client.drive.GoogleDriveFolders.INSTANCES_FOLDER_NAME;
+import static tomatopotato.cloudify.drive.GoogleDriveFolders.DRIVE_FOLDER_NAME;
+import static tomatopotato.cloudify.drive.GoogleDriveFolders.INSTANCES_FOLDER_NAME;
 
 public class GoogleDriveInstanceSync {
 	private static final String METADATA_FILE_NAME = "metadata.json";

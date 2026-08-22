@@ -19,11 +19,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.client.CloudifySettings.AutoSyncMode;
-import tomatopotato.cloudify.client.drive.GoogleDriveAuth;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveInstanceSync.InstanceMetadata;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync;
 import tomatopotato.cloudify.client.drive.GoogleDriveWorldSync.WorldMetadata;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
 
 public class CloudifyClient implements ClientModInitializer {
 	public static final String AUTO_SYNC_INSTANCE_TARGET_NAME = "Auto Backup";

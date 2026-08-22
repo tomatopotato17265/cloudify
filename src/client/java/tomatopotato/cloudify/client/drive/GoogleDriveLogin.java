@@ -11,6 +11,8 @@ import com.google.api.client.json.JsonObjectParser;
 import java.awt.Desktop;
 import java.io.IOException;
 import java.net.URI;
+import tomatopotato.cloudify.drive.GoogleDriveAuth;
+import tomatopotato.cloudify.drive.GoogleDriveConfig;
 
 public class GoogleDriveLogin {
 	private static final String USER_ID = "default";

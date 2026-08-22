@@ -1,4 +1,4 @@
-package tomatopotato.cloudify.client.drive;
+package tomatopotato.cloudify.drive;
 
 import com.google.api.services.drive.DriveScopes;
 import java.io.IOException;
