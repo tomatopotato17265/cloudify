@@ -117,6 +117,15 @@ public class GoogleDriveDeviceAuth {
 		return FLOW.loadCredential(USER_ID);
 	}
 
+	public static String getLoggedInEmail() throws IOException {
+		Credential credential = getCredential();
+		HttpRequestFactory requestFactory = GoogleDriveAuth.HTTP_TRANSPORT.createRequestFactory(credential);
+		HttpRequest request = requestFactory.buildGetRequest(new GenericUrl("https://www.googleapis.com/oauth2/v3/userinfo"));
+		request.setParser(new JsonObjectParser(GoogleDriveAuth.JSON_FACTORY));
+		GenericJson userInfo = request.execute().parseAs(GenericJson.class);
+		return (String) userInfo.get("email");
+	}
+
 	public static void logout() throws IOException {
 		FLOW.getCredentialDataStore().delete(USER_ID);
 	}
