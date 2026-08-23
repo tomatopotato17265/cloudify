@@ -35,6 +35,11 @@ import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 
 public class DriveTreeSync {
+	public enum UploadMode {
+		UPDATE_IN_PLACE,
+		CREATE_ONLY
+	}
+
 	public record FileFingerprint(String relativePath, long sizeBytes, long mtimeMillis, String contentHash, @Nullable String driveFileId) {
 	}
 
@@ -69,7 +74,8 @@ public class DriveTreeSync {
 		BiPredicate<Path, Path> exclusionFilter,
 		TransferProgressListener listener,
 		AtomicBoolean cancelled,
-		ExecutorService pool
+		ExecutorService pool,
+		UploadMode uploadMode
 	) throws IOException {
 		long walkHashStartedAt = System.nanoTime();
 		Map<String, FileFingerprint> localFingerprints = computeLocalFingerprints(localRoot, previousManifest, exclusionFilter);
@@ -84,7 +90,7 @@ public class DriveTreeSync {
 			return unchangedResult(previousManifest, totalLocalBytes, millis(walkHashStartedAt, walkHashDoneAt), 0, 0);
 		}
 
-		Map<String, String> folderIdCache = new ConcurrentHashMap<>(previousManifest.folderIds());
+		Map<String, String> folderIdCache = uploadMode == UploadMode.UPDATE_IN_PLACE ? new ConcurrentHashMap<>(previousManifest.folderIds()) : new ConcurrentHashMap<>();
 		folderIdCache.put("", rootFolderId);
 
 		Map<String, FileFingerprint> updatedEntries = new ConcurrentHashMap<>();
@@ -153,7 +159,8 @@ public class DriveTreeSync {
 					Path parent = relative.getParent();
 					String folderId = parent == null ? folderIdCache.get("") : folderIdCache.get(toKey(parent));
 					String fileId = GoogleDriveFolders.uploadFile(
-						drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", localRoot.resolve(relativePath).toFile()), local.driveFileId()
+						drive, folderId, relative.getFileName().toString(), new FileContent("application/octet-stream", localRoot.resolve(relativePath).toFile()),
+						uploadMode == UploadMode.UPDATE_IN_PLACE ? local.driveFileId() : null
 					);
 					updatedEntries.put(relativePath, new FileFingerprint(relativePath, local.sizeBytes(), local.mtimeMillis(), local.contentHash(), fileId));
 				} catch (IOException e) {
@@ -172,30 +179,33 @@ public class DriveTreeSync {
 		CompletableFuture.allOf(uploadFutures.toArray(CompletableFuture[]::new)).join();
 		long uploadDoneAt = System.nanoTime();
 
-		Set<String> unattemptedDeletes = new HashSet<>(deletedPaths);
-		if (!cancelled.get()) {
-			for (String relativePath : deletedPaths) {
-				if (cancelled.get()) {
-					break;
-				}
-				unattemptedDeletes.remove(relativePath);
-
-				FileFingerprint gone = previousManifest.entries().get(relativePath);
-				if (gone.driveFileId() == null) {
-					Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
-					skippedCount.incrementAndGet();
-				} else {
-					try {
-						drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
-					} catch (IOException e) {
-						Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
-						skippedCount.incrementAndGet();
-						updatedEntries.put(relativePath, gone);
+		Set<String> unattemptedDeletes = new HashSet<>();
+		if (uploadMode == UploadMode.UPDATE_IN_PLACE) {
+			unattemptedDeletes.addAll(deletedPaths);
+			if (!cancelled.get()) {
+				for (String relativePath : deletedPaths) {
+					if (cancelled.get()) {
+						break;
 					}
-				}
+					unattemptedDeletes.remove(relativePath);
 
-				int newFilesTransferred = filesTransferred.incrementAndGet();
-				listener.onProgress(bytesTransferred.get(), totalBytes, newFilesTransferred, totalFiles, relativePath);
+					FileFingerprint gone = previousManifest.entries().get(relativePath);
+					if (gone.driveFileId() == null) {
+						Cloudify.LOGGER.warn("No Google Drive file id recorded for deleted local file '{}', leaving it in place on Drive", relativePath);
+						skippedCount.incrementAndGet();
+					} else {
+						try {
+							drive.files().update(gone.driveFileId(), new File().setTrashed(true)).execute();
+						} catch (IOException e) {
+							Cloudify.LOGGER.warn("Failed to trash deleted file '{}' on Google Drive, will retry next sync", relativePath, e);
+							skippedCount.incrementAndGet();
+							updatedEntries.put(relativePath, gone);
+						}
+					}
+
+					int newFilesTransferred = filesTransferred.incrementAndGet();
+					listener.onProgress(bytesTransferred.get(), totalBytes, newFilesTransferred, totalFiles, relativePath);
+				}
 			}
 		}
 		long deleteDoneAt = System.nanoTime();
@@ -209,8 +219,10 @@ public class DriveTreeSync {
 				}
 			}
 		}
-		for (String relativePath : unattemptedDeletes) {
-			updatedEntries.put(relativePath, previousManifest.entries().get(relativePath));
+		if (uploadMode == UploadMode.UPDATE_IN_PLACE) {
+			for (String relativePath : unattemptedDeletes) {
+				updatedEntries.put(relativePath, previousManifest.entries().get(relativePath));
+			}
 		}
 
 		return new SyncResult(

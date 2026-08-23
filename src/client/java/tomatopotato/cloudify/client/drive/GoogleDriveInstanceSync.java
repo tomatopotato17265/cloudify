@@ -128,7 +128,7 @@ public class GoogleDriveInstanceSync {
 		});
 		DriveTreeSync.SyncResult result;
 		try {
-			result = DriveTreeSync.sync(drive, instanceFolderId, gameDir, previousManifest, InstanceFileFilter::isExcluded, listener, cancelled, uploadPool);
+			result = DriveTreeSync.sync(drive, instanceFolderId, gameDir, previousManifest, InstanceFileFilter::isExcluded, listener, cancelled, uploadPool, DriveTreeSync.UploadMode.UPDATE_IN_PLACE);
 		} finally {
 			uploadPool.shutdown();
 		}

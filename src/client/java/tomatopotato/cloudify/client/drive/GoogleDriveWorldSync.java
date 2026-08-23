@@ -103,7 +103,7 @@ public class GoogleDriveWorldSync {
 		});
 		DriveTreeSync.SyncResult result;
 		try {
-			result = DriveTreeSync.sync(drive, worldFolderId, worldFolder, previousManifest, WorldFileFilter::isExcluded, listener, cancelled, uploadPool);
+			result = DriveTreeSync.sync(drive, worldFolderId, worldFolder, previousManifest, WorldFileFilter::isExcluded, listener, cancelled, uploadPool, DriveTreeSync.UploadMode.UPDATE_IN_PLACE);
 		} finally {
 			uploadPool.shutdown();
 		}
