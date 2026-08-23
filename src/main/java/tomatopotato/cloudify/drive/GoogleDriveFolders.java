@@ -13,6 +13,7 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
@@ -135,6 +136,24 @@ public class GoogleDriveFolders {
 
 	private static void configureUpload(MediaHttpUploader uploader, long length) {
 		uploader.setDirectUploadEnabled(length >= 0 && length <= MULTIPART_MAX_BYTES);
+	}
+
+	public static boolean isFolderUsable(Drive drive, String folderId) throws IOException {
+		try {
+			File file = drive.files().get(folderId).setFields("id,trashed").execute();
+			return !Boolean.TRUE.equals(file.getTrashed());
+		} catch (GoogleJsonResponseException e) {
+			if (e.getStatusCode() == 404) {
+				return false;
+			}
+			throw e;
+		}
+	}
+
+	public static String slugify(String name, String fallback) {
+		String slug = name.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+		slug = slug.replaceAll("^-+", "").replaceAll("-+$", "");
+		return slug.isEmpty() ? fallback : slug;
 	}
 
 	public static void trashRecursively(Drive drive, String fileId) throws IOException {

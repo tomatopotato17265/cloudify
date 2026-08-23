@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -88,14 +87,14 @@ public class GoogleDriveInstanceSync {
 		Credential credential = GoogleDriveLogin.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
 
-		String slug = slugify(targetName);
+		String slug = GoogleDriveFolders.slugify(targetName, "instance");
 		DriveIdCache.Data idCache = DriveIdCache.load();
 		DriveIdCache.InstanceIds cachedIds = idCache.instances().getOrDefault(slug, DriveIdCache.InstanceIds.EMPTY);
 
 		String cloudifyFolderId = idCache.cloudifyFolderId();
 		String instancesFolderId = idCache.instancesFolderId();
 		String instanceFolderId = cachedIds.folderId();
-		boolean cacheUsable = cloudifyFolderId != null && instancesFolderId != null && instanceFolderId != null && isFolderUsable(drive, instanceFolderId);
+		boolean cacheUsable = cloudifyFolderId != null && instancesFolderId != null && instanceFolderId != null && GoogleDriveFolders.isFolderUsable(drive, instanceFolderId);
 		if (!cacheUsable) {
 			cloudifyFolderId = GoogleDriveFolders.findOrCreateFolder(drive, DRIVE_FOLDER_NAME, null);
 			instancesFolderId = GoogleDriveFolders.findOrCreateFolder(drive, INSTANCES_FOLDER_NAME, cloudifyFolderId);
@@ -350,18 +349,6 @@ public class GoogleDriveInstanceSync {
 		}
 	}
 
-	private static boolean isFolderUsable(Drive drive, String folderId) throws IOException {
-		try {
-			File file = drive.files().get(folderId).setFields("id,trashed").execute();
-			return !Boolean.TRUE.equals(file.getTrashed());
-		} catch (GoogleJsonResponseException e) {
-			if (e.getStatusCode() == 404) {
-				return false;
-			}
-			throw e;
-		}
-	}
-
 	private static Optional<DriveTreeSync.DriveManifest> downloadManifestIfPresent(Drive drive, String instanceFolderId, @Nullable String knownManifestFileId) throws IOException {
 		if (knownManifestFileId != null) {
 			try (InputStream in = drive.files().get(knownManifestFileId).executeMediaAsInputStream()) {
@@ -383,12 +370,6 @@ public class GoogleDriveInstanceSync {
 		try (InputStream in = drive.files().get(matches.get(0).getId()).executeMediaAsInputStream()) {
 			return Optional.of(DriveTreeSync.deserializeManifest(in));
 		}
-	}
-
-	private static String slugify(String name) {
-		String slug = name.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
-		slug = slug.replaceAll("^-+", "").replaceAll("-+$", "");
-		return slug.isEmpty() ? "instance" : slug;
 	}
 
 	static byte[] serializeMetadata(InstanceMetadata metadata) throws IOException {
