@@ -28,4 +28,4 @@ This project's Google Drive integration is built on the following Google Cloud d
 - [Google OAuth Client Library for Java](https://github.com/googleapis/google-oauth-java-client)
 - [Google Drive API v3 Client Library for Java](https://github.com/googleapis/google-api-java-client-services)
 
-Cloudify collects your email address via the `userinfo.email` scope and manages files and folders in your Google Drive via the `drive.file` scope. Nothing is collected and sent to another server; everything stays between the client-side mod and Google.
+Cloudify collects your email address via the `userinfo.email` scope and manages files and folders in your Google Drive via the `drive.file` scope. Nothing is collected and sent to another server; everything stays between the client-side mod and Google. Please refer to the [Privacy Policy](https://cloudifymc.dev/privacy.html) for more information.
