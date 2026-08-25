@@ -402,7 +402,7 @@ public class DriveTreeSync {
 		}
 	}
 
-	public static byte[] serializeManifest(DriveManifest manifest) throws IOException {
+	public static GenericJson toJson(DriveManifest manifest) {
 		GenericJson json = new GenericJson();
 
 		List<String> sortedPaths = new ArrayList<>(manifest.entries().keySet());
@@ -421,12 +421,14 @@ public class DriveTreeSync {
 		json.set("entries", entriesJson);
 		json.set("folders", new TreeMap<>(manifest.folderIds()));
 
-		return GoogleDriveAuth.JSON_FACTORY.toByteArray(json);
+		return json;
 	}
 
-	public static DriveManifest deserializeManifest(InputStream in) throws IOException {
-		GenericJson json = GoogleDriveAuth.JSON_FACTORY.fromInputStream(in, GenericJson.class);
+	public static byte[] serializeManifest(DriveManifest manifest) throws IOException {
+		return GoogleDriveAuth.JSON_FACTORY.toByteArray(toJson(manifest));
+	}
 
+	public static DriveManifest fromJson(Map<?, ?> json) {
 		Map<String, FileFingerprint> entries = new LinkedHashMap<>();
 		Object entriesRaw = json.get("entries");
 		if (entriesRaw instanceof List<?> list) {
@@ -464,5 +466,10 @@ public class DriveTreeSync {
 		}
 
 		return new DriveManifest(entries, folderIds);
+	}
+
+	public static DriveManifest deserializeManifest(InputStream in) throws IOException {
+		GenericJson json = GoogleDriveAuth.JSON_FACTORY.fromInputStream(in, GenericJson.class);
+		return fromJson(json);
 	}
 }
