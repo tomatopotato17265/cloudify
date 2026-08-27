@@ -9,5 +9,6 @@ public class CloudifyServer implements DedicatedServerModInitializer {
 	public void onInitializeServer() {
 		Cloudify.LOGGER.info("Cloudify server-side backups are initializing");
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> CloudifyServerCommands.register(dispatcher));
+		CloudifyServerScheduler.register();
 	}
 }

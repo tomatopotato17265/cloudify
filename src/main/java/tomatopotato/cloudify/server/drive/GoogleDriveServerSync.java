@@ -27,6 +27,34 @@ public class GoogleDriveServerSync {
 	private static final int UPLOAD_CONCURRENCY = 6;
 	private static final DateTimeFormatter BACKUP_FOLDER_NAME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
 
+	private static final AtomicBoolean BACKUP_IN_PROGRESS = new AtomicBoolean(false);
+	private static final ExecutorService BACKUP_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+		Thread thread = new Thread(r, "cloudify-server-backup");
+		thread.setDaemon(true);
+		return thread;
+	});
+
+	public static boolean isBackupInProgress() {
+		return BACKUP_IN_PROGRESS.get();
+	}
+
+	public static boolean triggerBackupAsync(Path serverRoot, String serverName) {
+		if (!BACKUP_IN_PROGRESS.compareAndSet(false, true)) {
+			return false;
+		}
+
+		BACKUP_EXECUTOR.execute(() -> {
+			try {
+				backupServer(serverRoot, serverName);
+			} catch (IOException e) {
+				Cloudify.LOGGER.error("Server backup for '{}' failed", serverName, e);
+			} finally {
+				BACKUP_IN_PROGRESS.set(false);
+			}
+		});
+		return true;
+	}
+
 	public static void backupServer(Path serverRoot, String serverName) throws IOException {
 		backupServer(serverRoot, serverName, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
