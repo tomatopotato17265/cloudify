@@ -1,6 +1,6 @@
 # Contributing to Cloudify
 
-Thank you for contributing to Cloudify! Here are some tips and info to help you get started with contribution.
+Thank you for wanting to contribute to Cloudify! Here are some tips and info to help you get started with contribution.
 
 ## Project Information
 
