@@ -14,6 +14,8 @@ import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth.DeviceCode;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth.PollResult;
+import tomatopotato.cloudify.server.drive.GoogleDriveServerSync;
+import tomatopotato.cloudify.server.drive.GoogleDriveServerSync.LastBackupResult;
 
 public class CloudifyServerCommands {
 	private static final AtomicBoolean LOGIN_IN_PROGRESS = new AtomicBoolean(false);
@@ -116,7 +118,33 @@ public class CloudifyServerCommands {
 			}
 
 			String email = GoogleDriveDeviceAuth.getLoggedInEmail();
-			source.sendSuccess(() -> Component.literal("Logged in to Google Drive as " + email), false);
+			StringBuilder message = new StringBuilder("Logged in to Google Drive as ").append(email);
+
+			LastBackupResult last = GoogleDriveServerSync.getLastBackupResult();
+			if (last == null) {
+				message.append("\nNo backup has run yet this session");
+			} else {
+				message.append("\nLast backup: '")
+					.append(last.serverName())
+					.append("' as '")
+					.append(last.backupFolderName())
+					.append("' (")
+					.append(last.uploadedCount())
+					.append(" changed, ")
+					.append(last.deletedCount())
+					.append(" gone, ")
+					.append(last.unchangedCount())
+					.append(" unchanged, ")
+					.append(last.skippedCount())
+					.append(" skipped, ")
+					.append(last.totalBytes())
+					.append(" bytes) in ")
+					.append(last.durationMillis())
+					.append(" ms");
+			}
+
+			String finalMessage = message.toString();
+			source.sendSuccess(() -> Component.literal(finalMessage), false);
 			return 1;
 		} catch (IOException e) {
 			Cloudify.LOGGER.error("Failed to check Google Drive login status", e);

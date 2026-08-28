@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.server.MinecraftServer;
+import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.drive.DriveTreeSync;
 import tomatopotato.cloudify.drive.GoogleDriveFolders;
@@ -36,8 +37,19 @@ public class GoogleDriveServerSync {
 		return thread;
 	});
 
+	public record LastBackupResult(
+		String serverName, String backupFolderName, int uploadedCount, int deletedCount, int unchangedCount, int skippedCount, long totalBytes, long durationMillis
+	) {
+	}
+
+	private static volatile @Nullable LastBackupResult lastBackupResult;
+
 	public static boolean isBackupInProgress() {
 		return BACKUP_IN_PROGRESS.get();
+	}
+
+	public static @Nullable LastBackupResult getLastBackupResult() {
+		return lastBackupResult;
 	}
 
 	public static boolean triggerBackupAsync(MinecraftServer server, Path serverRoot, String serverName) {
@@ -58,7 +70,7 @@ public class GoogleDriveServerSync {
 	}
 
 	public static void backupServer(MinecraftServer server, Path serverRoot, String serverName) throws IOException {
-		backupServer(server, serverRoot, serverName, TransferProgressListener.NO_OP, new AtomicBoolean(false));
+		backupServer(server, serverRoot, serverName, new LoggingTransferProgressListener(serverName), new AtomicBoolean(false));
 	}
 
 	public static void backupServer(MinecraftServer server, Path serverRoot, String serverName, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
@@ -133,6 +145,17 @@ public class GoogleDriveServerSync {
 		Map<String, ServerDriveIdCache.ServerState> updatedServers = new LinkedHashMap<>(cache.servers());
 		updatedServers.put(slug, new ServerDriveIdCache.ServerState(serverFolderId, updatedManifest));
 		ServerDriveIdCache.save(new ServerDriveIdCache.Data(cloudifyFolderId, serversFolderId, updatedServers));
+
+		lastBackupResult = new LastBackupResult(
+			serverName,
+			backupFolderName,
+			result.uploadedCount(),
+			result.deletedCount(),
+			result.unchangedCount(),
+			result.skippedCount(),
+			result.totalLocalBytes(),
+			millis(startedAt, commitDoneAt)
+		);
 
 		Cloudify.LOGGER.info(
 			"Backed up server '{}' to Google Drive as '{}' ({} files changed/added, {} gone locally, {} unchanged, {} skipped, {} bytes, {} requests) in {} ms"
