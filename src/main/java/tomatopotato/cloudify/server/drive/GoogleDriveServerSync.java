@@ -10,10 +10,12 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.minecraft.server.MinecraftServer;
 import tomatopotato.cloudify.Cloudify;
 import tomatopotato.cloudify.drive.DriveTreeSync;
 import tomatopotato.cloudify.drive.GoogleDriveFolders;
@@ -38,14 +40,14 @@ public class GoogleDriveServerSync {
 		return BACKUP_IN_PROGRESS.get();
 	}
 
-	public static boolean triggerBackupAsync(Path serverRoot, String serverName) {
+	public static boolean triggerBackupAsync(MinecraftServer server, Path serverRoot, String serverName) {
 		if (!BACKUP_IN_PROGRESS.compareAndSet(false, true)) {
 			return false;
 		}
 
 		BACKUP_EXECUTOR.execute(() -> {
 			try {
-				backupServer(serverRoot, serverName);
+				backupServer(server, serverRoot, serverName);
 			} catch (IOException e) {
 				Cloudify.LOGGER.error("Server backup for '{}' failed", serverName, e);
 			} finally {
@@ -55,17 +57,27 @@ public class GoogleDriveServerSync {
 		return true;
 	}
 
-	public static void backupServer(Path serverRoot, String serverName) throws IOException {
-		backupServer(serverRoot, serverName, TransferProgressListener.NO_OP, new AtomicBoolean(false));
+	public static void backupServer(MinecraftServer server, Path serverRoot, String serverName) throws IOException {
+		backupServer(server, serverRoot, serverName, TransferProgressListener.NO_OP, new AtomicBoolean(false));
 	}
 
-	public static void backupServer(Path serverRoot, String serverName, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
+	public static void backupServer(MinecraftServer server, Path serverRoot, String serverName, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
 		if (!GoogleDriveDeviceAuth.isLoggedIn()) {
 			Cloudify.LOGGER.info("Server backup for '{}' skipped: not logged in to Google Drive", serverName);
 			return;
 		}
 
 		long startedAt = System.nanoTime();
+		try {
+			server.submit(() -> server.saveEverything(true, true, true)).get();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			Cloudify.LOGGER.warn("Interrupted while saving before server backup for '{}', proceeding with backup anyway", serverName, e);
+		} catch (ExecutionException e) {
+			Cloudify.LOGGER.warn("Failed to save before server backup for '{}', proceeding with backup anyway", serverName, e.getCause());
+		}
+		long saveDoneAt = System.nanoTime();
+
 		GoogleDriveFolders.resetRequestCount();
 		Credential credential = GoogleDriveDeviceAuth.getCredential();
 		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
@@ -124,7 +136,7 @@ public class GoogleDriveServerSync {
 
 		Cloudify.LOGGER.info(
 			"Backed up server '{}' to Google Drive as '{}' ({} files changed/added, {} gone locally, {} unchanged, {} skipped, {} bytes, {} requests) in {} ms"
-				+ " [bootstrap {} / sync {} / commit {}]",
+				+ " [save {} / bootstrap {} / sync {} / commit {}]",
 			serverName,
 			backupFolderName,
 			result.uploadedCount(),
@@ -134,7 +146,8 @@ public class GoogleDriveServerSync {
 			result.totalLocalBytes(),
 			GoogleDriveFolders.getRequestCount(),
 			millis(startedAt, commitDoneAt),
-			millis(startedAt, bootstrapDoneAt),
+			millis(startedAt, saveDoneAt),
+			millis(saveDoneAt, bootstrapDoneAt),
 			millis(bootstrapDoneAt, syncDoneAt),
 			millis(syncDoneAt, commitDoneAt)
 		);

@@ -4,7 +4,10 @@ import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.server.MinecraftServer;
+import org.jspecify.annotations.Nullable;
 import tomatopotato.cloudify.server.CloudifyServerSettings.CloudifyServerSettingsData;
 import tomatopotato.cloudify.server.drive.GoogleDriveServerSync;
 
@@ -17,13 +20,21 @@ public class CloudifyServerScheduler {
 	});
 
 	private static volatile long lastBackupAtMillis;
+	private static volatile @Nullable MinecraftServer runningServer;
 
 	public static void register() {
 		lastBackupAtMillis = System.currentTimeMillis();
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> runningServer = server);
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> runningServer = null);
 		SCHEDULER.scheduleWithFixedDelay(CloudifyServerScheduler::check, CHECK_INTERVAL_SECONDS, CHECK_INTERVAL_SECONDS, TimeUnit.SECONDS);
 	}
 
 	private static void check() {
+		MinecraftServer server = runningServer;
+		if (server == null) {
+			return;
+		}
+
 		CloudifyServerSettingsData settings = CloudifyServerSettings.load();
 		if (settings.backupIntervalMinutes() <= 0) {
 			return;
@@ -36,7 +47,7 @@ public class CloudifyServerScheduler {
 		}
 
 		Path serverRoot = FabricLoader.getInstance().getGameDir();
-		if (GoogleDriveServerSync.triggerBackupAsync(serverRoot, settings.serverDisplayName())) {
+		if (GoogleDriveServerSync.triggerBackupAsync(server, serverRoot, settings.serverDisplayName())) {
 			lastBackupAtMillis = now;
 		}
 	}
