@@ -3,14 +3,17 @@ package tomatopotato.cloudify.server;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import tomatopotato.cloudify.Cloudify;
+import tomatopotato.cloudify.server.CloudifyServerSettings.CloudifyServerSettingsData;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth.DeviceCode;
 import tomatopotato.cloudify.server.drive.GoogleDriveDeviceAuth.PollResult;
@@ -32,7 +35,22 @@ public class CloudifyServerCommands {
 				.then(Commands.literal("login").executes(CloudifyServerCommands::login))
 				.then(Commands.literal("logout").executes(CloudifyServerCommands::logout))
 				.then(Commands.literal("status").executes(CloudifyServerCommands::status))
+				.then(Commands.literal("backup").then(Commands.literal("now").executes(CloudifyServerCommands::backupNow)))
 		);
+	}
+
+	private static int backupNow(CommandContext<CommandSourceStack> context) {
+		CommandSourceStack source = context.getSource();
+		CloudifyServerSettingsData settings = CloudifyServerSettings.load();
+		Path serverRoot = FabricLoader.getInstance().getGameDir();
+		boolean started = GoogleDriveServerSync.triggerBackupAsync(source.getServer(), serverRoot, settings.serverDisplayName());
+		if (started) {
+			source.sendSuccess(() -> Component.literal("Backup started, check /cloudify status or the log for progress"), true);
+			return 1;
+		}
+
+		source.sendFailure(Component.literal("A backup is already in progress"));
+		return 0;
 	}
 
 	private static int login(CommandContext<CommandSourceStack> context) {

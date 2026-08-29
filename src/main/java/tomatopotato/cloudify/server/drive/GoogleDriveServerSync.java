@@ -69,6 +69,19 @@ public class GoogleDriveServerSync {
 		return true;
 	}
 
+	public static boolean triggerBackupBlocking(MinecraftServer server, Path serverRoot, String serverName) throws IOException {
+		if (!BACKUP_IN_PROGRESS.compareAndSet(false, true)) {
+			return false;
+		}
+
+		try {
+			backupServer(server, serverRoot, serverName);
+		} finally {
+			BACKUP_IN_PROGRESS.set(false);
+		}
+		return true;
+	}
+
 	public static void backupServer(MinecraftServer server, Path serverRoot, String serverName) throws IOException {
 		backupServer(server, serverRoot, serverName, new LoggingTransferProgressListener(serverName), new AtomicBoolean(false));
 	}
@@ -80,13 +93,17 @@ public class GoogleDriveServerSync {
 		}
 
 		long startedAt = System.nanoTime();
-		try {
-			server.submit(() -> server.saveEverything(true, true, true)).get();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			Cloudify.LOGGER.warn("Interrupted while saving before server backup for '{}', proceeding with backup anyway", serverName, e);
-		} catch (ExecutionException e) {
-			Cloudify.LOGGER.warn("Failed to save before server backup for '{}', proceeding with backup anyway", serverName, e.getCause());
+		if (server.isSameThread()) {
+			server.saveEverything(true, true, true);
+		} else {
+			try {
+				server.submit(() -> server.saveEverything(true, true, true)).get();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				Cloudify.LOGGER.warn("Interrupted while saving before server backup for '{}', proceeding with backup anyway", serverName, e);
+			} catch (ExecutionException e) {
+				Cloudify.LOGGER.warn("Failed to save before server backup for '{}', proceeding with backup anyway", serverName, e.getCause());
+			}
 		}
 		long saveDoneAt = System.nanoTime();
 
