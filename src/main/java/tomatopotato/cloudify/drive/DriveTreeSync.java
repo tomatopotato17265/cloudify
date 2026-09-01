@@ -11,6 +11,7 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -302,6 +303,43 @@ public class DriveTreeSync {
 				int newFilesTransferred = filesTransferred.incrementAndGet();
 				listener.onProgress(newBytesTransferred, totalBytes, newFilesTransferred, totalFiles, name);
 			}
+		}
+		return true;
+	}
+
+	public static boolean downloadFromManifest(Drive drive, DriveManifest manifest, Path targetDir, TransferProgressListener listener, AtomicBoolean cancelled) throws IOException {
+		long totalBytes = 0L;
+		for (FileFingerprint entry : manifest.entries().values()) {
+			totalBytes += entry.sizeBytes();
+		}
+		int totalFiles = manifest.entries().size();
+
+		AtomicLong bytesTransferred = new AtomicLong();
+		AtomicInteger filesTransferred = new AtomicInteger();
+		listener.onProgress(0, totalBytes, 0, totalFiles, "");
+
+		List<String> sortedPaths = new ArrayList<>(manifest.entries().keySet());
+		Collections.sort(sortedPaths);
+		for (String relativePath : sortedPaths) {
+			if (cancelled.get()) {
+				return false;
+			}
+
+			FileFingerprint entry = manifest.entries().get(relativePath);
+			if (entry.driveFileId() == null) {
+				Cloudify.LOGGER.warn("No Google Drive file id recorded for '{}', skipping", relativePath);
+				continue;
+			}
+
+			Path target = targetDir.resolve(relativePath);
+			Files.createDirectories(target.getParent());
+			try (InputStream in = drive.files().get(entry.driveFileId()).executeMediaAsInputStream()) {
+				Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+			}
+
+			long newBytesTransferred = bytesTransferred.addAndGet(entry.sizeBytes());
+			int newFilesTransferred = filesTransferred.incrementAndGet();
+			listener.onProgress(newBytesTransferred, totalBytes, newFilesTransferred, totalFiles, relativePath);
 		}
 		return true;
 	}
