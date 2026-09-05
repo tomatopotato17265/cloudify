@@ -3,13 +3,19 @@ package tomatopotato.cloudify.server.drive;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.http.ByteArrayContent;
 import com.google.api.services.drive.Drive;
+import com.google.api.services.drive.model.File;
+import com.google.api.services.drive.model.FileList;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,6 +56,85 @@ public class GoogleDriveServerSync {
 
 	public static @Nullable LastBackupResult getLastBackupResult() {
 		return lastBackupResult;
+	}
+
+	public record DriveServerEntry(String folderId, String folderName) {
+	}
+
+	public record DriveBackupEntry(String folderId, String backupFolderName, long modifiedTimeMillis) {
+	}
+
+	public static List<DriveServerEntry> listServers() throws IOException {
+		if (!GoogleDriveDeviceAuth.isLoggedIn()) {
+			return List.of();
+		}
+
+		Credential credential = GoogleDriveDeviceAuth.getCredential();
+		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
+
+		Optional<String> cloudifyFolderId = GoogleDriveFolders.findFolder(drive, DRIVE_FOLDER_NAME, null);
+		if (cloudifyFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		Optional<String> serversFolderId = GoogleDriveFolders.findFolder(drive, SERVERS_FOLDER_NAME, cloudifyFolderId.get());
+		if (serversFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		String query = "'" + serversFolderId.get() + "' in parents and mimeType = '" + GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name)").setPageSize(1000).execute();
+		List<File> serverFolders = result.getFiles();
+		if (serverFolders == null) {
+			return List.of();
+		}
+
+		List<DriveServerEntry> entries = new ArrayList<>();
+		for (File serverFolder : serverFolders) {
+			entries.add(new DriveServerEntry(serverFolder.getId(), serverFolder.getName()));
+		}
+		entries.sort(Comparator.comparing(DriveServerEntry::folderName));
+		return entries;
+	}
+
+	public static List<DriveBackupEntry> listBackups(String serverName) throws IOException {
+		if (!GoogleDriveDeviceAuth.isLoggedIn()) {
+			return List.of();
+		}
+
+		Credential credential = GoogleDriveDeviceAuth.getCredential();
+		Drive drive = GoogleDriveFolders.buildDriveClient(credential);
+
+		Optional<String> cloudifyFolderId = GoogleDriveFolders.findFolder(drive, DRIVE_FOLDER_NAME, null);
+		if (cloudifyFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		Optional<String> serversFolderId = GoogleDriveFolders.findFolder(drive, SERVERS_FOLDER_NAME, cloudifyFolderId.get());
+		if (serversFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		String slug = GoogleDriveFolders.slugify(serverName, "server");
+		Optional<String> serverFolderId = GoogleDriveFolders.findFolder(drive, slug, serversFolderId.get());
+		if (serverFolderId.isEmpty()) {
+			return List.of();
+		}
+
+		String query = "'" + serverFolderId.get() + "' in parents and mimeType = '" + GoogleDriveFolders.DRIVE_FOLDER_MIME_TYPE + "' and trashed = false";
+		FileList result = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id, name, modifiedTime)").setPageSize(1000).execute();
+		List<File> backupFolders = result.getFiles();
+		if (backupFolders == null) {
+			return List.of();
+		}
+
+		List<DriveBackupEntry> entries = new ArrayList<>();
+		for (File backupFolder : backupFolders) {
+			long modifiedTimeMillis = backupFolder.getModifiedTime() != null ? backupFolder.getModifiedTime().getValue() : 0L;
+			entries.add(new DriveBackupEntry(backupFolder.getId(), backupFolder.getName(), modifiedTimeMillis));
+		}
+		entries.sort(Comparator.comparing(DriveBackupEntry::backupFolderName).reversed());
+		return entries;
 	}
 
 	public static boolean triggerBackupAsync(MinecraftServer server, Path serverRoot, String serverName) {
